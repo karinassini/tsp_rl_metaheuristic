@@ -1,6 +1,10 @@
-
 from src.structures.graph import Graph
 from src.constraints.tsp_constraint import TSPConstraint
+import numpy as np
+import logging
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 class TSPSolver:
     """
@@ -16,11 +20,12 @@ class TSPSolver:
         self.distance_matrix = graph.get_distance_matrix()
         self.n_cities = graph.n_nodes
         self.constraint = TSPConstraint(self.n_cities)
+
     def greedy_solve(self, start=0):
         """
         Solve the TSP using a greedy nearest neighbor heuristic.
         :param start: Index of the starting city.
-        :return: (tour, total_distance, tour_coordinates)
+        :return: (tour, total_distance)
         """
         visited = [False] * self.n_cities
         tour = [start]
@@ -48,6 +53,7 @@ class TSPSolver:
 
         # Check constraints
         if not self.constraint.is_valid_tour(tour):
-            print("Warning: Solution does not satisfy TSP constraints.")
-        
+            logger.warning("Solution does not satisfy TSP constraints.")
+        if isinstance(total_distance, np.int64):
+            total_distance = int(total_distance)
         return tour, total_distance

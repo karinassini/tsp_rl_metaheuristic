@@ -6,15 +6,26 @@ class SolutionSaver:
     """
     Class to save TSP solutions (route and total distance) to a file.
     """
-    def __init__(self, save_dir='solutions'):
+    def __init__(self, save_dir='solutions', instance_name=None):
         self.save_dir = save_dir
-        os.makedirs(save_dir, exist_ok=True)
+        self.instance_name = instance_name
+        
+        if os.path.exists('./src/solver/best_known.json'):
+            with open('./src/solver/best_known.json', 'r') as f:
+                best_data = json.load(f)
+            self.best_total_distance = best_data.get(self.instance_name, None)
+            self.best_total_distance = self.best_total_distance["value"]
+        else:
+            self.best_total_distance = None
+        os.makedirs(self.save_dir, exist_ok=True)
 
     def save(self, route, total_distance, filename='solution.json'):
         data = {
             'route': route,
-            'total_distance': total_distance
+            'total_distance': total_distance,
+            'best_total_distance': self.best_total_distance
         }
+
         file_path = f"{self.save_dir}/{filename}"
         with open(file_path, 'w') as f:
             json.dump(data, f, indent=4)
@@ -25,12 +36,13 @@ class SolutionSaver:
         with open(file_path, 'w') as f:
             f.write(f"Route: {route}\n")
             f.write(f"Total distance: {total_distance}\n")
+            f.write(f"Best known distance: {self.best_total_distance}\n")  # Placeholder for best known
         print(f"Solution saved to {file_path}")
         
     def plot_solution_graph(self, route, adj_matrix, filename='solution_graph.png'):
             """
             Plots the TSP route as a graph using matplotlib and networkx. The graph is built from an adjacency matrix,
-            and the TSP route is highlighted.
+            and the TSP route is highlighted with edge labels indicating the order of the tour.
 
             Parameters:
                 route (list): Ordered list of nodes.
@@ -64,6 +76,12 @@ class SolutionSaver:
             route_edges.append((route[-1], route[0]))
             
             nx.draw_networkx_edges(G, pos, edgelist=route_edges, edge_color='red', width=2)
+            
+            # Label each edge with its order in the tour
+            edge_labels = {}
+            for idx, edge in enumerate(route_edges):
+                edge_labels[edge] = str(idx + 1)
+            nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_color='red')
             
             plt.title("TSP Solution Route")
             plt.savefig(filename)

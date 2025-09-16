@@ -3,6 +3,7 @@ import os
 import matplotlib.pyplot as plt
 import math
 import networkx as nx
+import numpy as np
 
 class Graph:
     """
@@ -20,7 +21,7 @@ class Graph:
         self.adj_matrix = self._build_adj_matrix()
 
     @staticmethod
-    def from_tsplib(filename):
+    def from_tsplib_math(filename):
         nodes = []
         coords = []
         with open(filename, 'r') as f:
@@ -43,6 +44,43 @@ class Graph:
         for i in range(n):
             for j in range(i + 1, n):
                 dist = math.hypot(coords[i][0] - coords[j][0], coords[i][1] - coords[j][1])
+                edges[(i, j)] = dist
+                edges[(j, i)] = dist
+        return Graph(nodes, edges)
+    
+    import numpy as np
+
+    def from_tsplib(filepath):
+        with open(filepath, 'r') as f:
+            lines = f.readlines()
+
+        dimension = None
+        matrix_lines = []
+        in_matrix = False
+
+        for line in lines:
+            line = line.strip()
+            if line.startswith('DIMENSION'):
+                dimension = int(line.split(':')[1].strip())
+            if line.startswith('EDGE_WEIGHT_SECTION'):
+                in_matrix = True
+                continue
+            if in_matrix:
+                if line == 'EOF':
+                    break
+                matrix_lines.extend(line.split())
+
+        if dimension is None:
+            raise ValueError("DIMENSION not found in TSPLIB file.")
+
+        matrix = np.array(list(map(int, matrix_lines))).reshape((dimension, dimension))
+        
+        # Build nodes and edges from the matrix to create a graph
+        nodes = list(range(dimension))
+        edges = {}
+        for i in range(dimension):
+            for j in range(i + 1, dimension):
+                dist = matrix[i][j]
                 edges[(i, j)] = dist
                 edges[(j, i)] = dist
         return Graph(nodes, edges)
