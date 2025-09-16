@@ -1,6 +1,7 @@
 import json
 import os
 import networkx as nx
+import datetime
 
 class SolutionSaver:
     """
@@ -19,14 +20,16 @@ class SolutionSaver:
             self.best_total_distance = None
         os.makedirs(self.save_dir, exist_ok=True)
 
-    def save(self, route, total_distance, filename='solution.json'):
+    def save(self, route, total_distance, **params):
         data = {
             'route': route,
             'total_distance': total_distance,
-            'best_total_distance': self.best_total_distance
+            'best_total_distance': self.best_total_distance,
+            'params': params if params else None
         }
 
-        file_path = f"{self.save_dir}/{filename}"
+        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        file_path = f"{self.save_dir}/{timestamp}_solution.json"
         with open(file_path, 'w') as f:
             json.dump(data, f, indent=4)
         print(f"Solution saved to {file_path}")

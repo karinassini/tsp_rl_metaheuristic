@@ -5,22 +5,15 @@ import numpy as np
 from src.structures.graph import Graph
 from src.constraints.tsp_constraint import TSPConstraint
 
-METHOD = "greedy"  # Change to "random" to use a random initial solution
 
 logging.basicConfig(level=logging.INFO)
-timestamp = time.strftime("%Y%m%d_%H%M%S")
-file_handler = logging.FileHandler(f"vns_steps_{timestamp}_{METHOD}.log")
-file_handler.setLevel(logging.INFO)
-formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-file_handler.setFormatter(formatter)
-logging.getLogger().addHandler(file_handler)
 
 class VNS_Solver:
     """
     A class to solve the Traveling Salesman Problem (TSP) using Variable Neighborhood Search (VNS).
     Accepts a Graph object for flexibility.
     """
-    def __init__(self, graph: Graph):
+    def __init__(self, graph: Graph, save_dir: str=None, method="random"):
         """
         Initialize the VNS solver with a Graph object.
         :param graph: Graph instance representing the TSP.
@@ -29,6 +22,17 @@ class VNS_Solver:
         self.distance_matrix = graph.get_distance_matrix()
         self.n_cities = graph.n_nodes
         self.constraint = TSPConstraint(self.n_cities)
+        self.save_dir = save_dir
+        self.method = method  # Change to "random" to use a random initial solution
+
+
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        file_handler = logging.FileHandler(f"{self.save_dir}/logs/vns_steps_{timestamp}_{self.method}.log" if self.save_dir else f"vns_steps_{timestamp}_{self.method}.log")
+        file_handler.setLevel(logging.INFO)
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        file_handler.setFormatter(formatter)
+        logging.getLogger().addHandler(file_handler)
+
 
     @staticmethod
     def tour_distance(tour, dist_matrix):
@@ -80,7 +84,7 @@ class VNS_Solver:
         if operator is None:
             operator = self.two_opt
         # Choose initialization method: "greedy" or "random"
-        if METHOD == "greedy":
+        if self.method  == "greedy":
             # Greedy initial solution: starting from the given start or a random city
             start_city = start if start is not None else random.randint(0, self.n_cities - 1)
             unvisited = list(range(self.n_cities))
@@ -105,7 +109,7 @@ class VNS_Solver:
             tour = np.append(tour, tour[0])
             tour = np.array(tour)
         total_distance = self.tour_distance(tour, self.distance_matrix)
-        logging.info(f"Initial {METHOD} tour: {tour.tolist()}, distance: {total_distance:.2f}")
+        logging.info(f"Initial {self.method} tour: {tour.tolist()}, distance: {total_distance:.2f}")
 
         k = 1
         total_exploration_time = 0
