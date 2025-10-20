@@ -1,62 +1,101 @@
-# tsp_rl_metaheuristic
+# Metaheuristic - TSP
 
-## Summary
-This repository contains implementations that combine metaheuristic algorithms with reinforcement learning to solve the Traveling Salesman Problem (TSP). The code aims to explore and optimize solution strategies using advanced machine learning techniques.
+Implementations that combine reinforcement learning-inspired heuristics with classic metaheuristics to tackle the Traveling Salesman Problem (TSP). The toolbox ships with ready-to-run greedy, exact, and Variable Neighborhood Search (VNS) solvers plus utilities for analysing solutions.
 
-## Remarks
-- The code uses instances from [Math TSP Data](https://www.math.uwaterloo.ca/tsp/data/index.html).
-- Additional benchmark data is available from [TSPLIB95](http://comopt.ifi.uni-heidelberg.de/software/TSPLIB95/tsp/).
+## Key Features
+- **Graph loader**: Parse TSPLIB coordinate and distance-matrix files into a unified `Graph` structure (`src/structures/graph.py`).
+- **Solver suite**: Run greedy baselines, a VNS metaheuristic, or an exact Gurobi model (`src/solver/*`).
+- **Constraint checks**: Validate candidate tours with reusable constraints (`src/constraints/tsp_constraint.py`).
+- **Result tracking**: Persist JSON summaries, logs, and comparison plots directly under `outputs/`.
+- **Benchmark ready**: Sample TSPLIB instances live inside `instances/tsplib/` with hooks for adding new datasets.
+
+## Project Layout
+```text
+├── instances/          # Benchmark TSP instances (TSPLIB format)
+├── outputs/            # Solver artefacts (plots, JSON solutions, logs)
+├── src/
+│   ├── constraints/    # Feasibility checks for tours
+│   ├── solver/         # Greedy, exact (Gurobi), and VNS implementations
+│   ├── structures/     # Graph abstraction and parsers
+│   └── utils/          # Plotting helpers for solution comparisons
+├── main.py             # Example entry point wiring graph + solvers
+├── pyproject.toml      # Poetry configuration and dependencies
+└── README.md
+```
 
 ## Getting Started
 
 ### Prerequisites
-- Python 3.x
-- pip package manager
+- Python 3.8–3.11
+- [Poetry](https://python-poetry.org/) ≥ 1.5 (project developed with 2.1.3)
+- (Optional) [Gurobi](https://www.gurobi.com/) license if you intend to run the exact solver (installs via `gurobipy`).
 
-### Installation
-1. Clone the repository:
-    ```bash
-    git clone https://github.com/yourusername/tsp_rl_metaheuristic.git
-    cd tsp_rl_metaheuristic
-    ```
-2. (Optional) Create and activate a virtual environment:
-    ```bash
-    python3 -m venv venv
-    source venv/bin/activate  # On Windows: venv\Scripts\activate
-    ```
-3. Install required packages:
-    ```bash
-    pip install -r requirements.txt
-    ```
+### Environment Setup
+```bash
+git clone https://github.com/yourusername/tsp_rl_metaheuristic.git
+cd tsp_rl_metaheuristic
+poetry install
+poetry shell  # or `poetry run <command>` for one-off execution
+```
 
-## Configuring Pre-commit Hooks
+If you prefer `venv`, replace the `poetry` commands with your virtual environment workflow and install dependencies using `pip install -r requirements.txt` generated via `poetry export`.
 
-To ensure code quality and consistency, this repository uses pre-commit hooks.
+### Pre-commit Hooks
+```bash
+pip install pre-commit
+pre-commit install
+pre-commit run --all-files
+```
+Hooks enforce formatting (Black) and linting rules defined in `.pre-commit-config.yaml` before every commit.
 
-1. Install pre-commit (if not already installed):
-    ```bash
-    pip install pre-commit
-    ```
-2. Make sure the `.pre-commit-config.yaml` file is present in the repository root.
-3. Install the pre-commit hooks:
-    ```bash
-    pre-commit install
-    ```
-4. Run the hooks manually on all files:
-    ```bash
-    pre-commit run --all-files
-    ```
+## Running Solvers
 
-Integrating pre-commit into your workflow helps maintain consistent code standards and prevent common issues.
+### 1. Select an Instance
+Drop additional TSPLIB-formatted problems under `instances/tsplib/`. The project includes `dj38.tsp`, `dj38_simplified.tsp`, and `swiss42.tsp` as examples.
 
-## Usage
+### 2. Launch from `main.py`
+Edit the `instance`, solver choice, and parameters in `main.py`, then run:
+```bash
+poetry run python main.py
+```
+The example script demonstrates how to:
+- Load a graph from TSPLIB files.
+- Switch between greedy, exact, and VNS solvers (`test_greedy_solver`, `test_exact`, `test_vns_solver`).
+- Persist solutions through `SolutionSaver`, including optional plots.
 
-Refer to the project's documentation for details on running experiments and configuring parameters. Further instructions and use cases may be added as the project evolves.
+### 3. Analyse Results
+- JSON outputs and logs appear under `outputs/solutions/<instance>/<solver>/`.
+- Use `SolutionComparisonPlotter` (`src/utils/plot_comparison_from_json.py`) to compare experiments:
+  ```bash
+  poetry run python -c "from src.utils.plot_comparison_from_json import SolutionComparisonPlotter as P; P('outputs/solutions/swiss42/vns').run()"
+  ```
+- Graph visualisations can be generated via `Graph.visualize(...)` when running experiments.
+
+## Adding New Solvers or Experiments
+- Implement a solver in `src/solver/` and expose an entry function.
+- Register experiment helpers inside `main.py` or create a dedicated driver script under `src/`.
+- Reuse `TSPConstraint` to ensure feasibility and `SolutionSaver` to keep artefacts consistent.
+
+## Benchmarks and selected instances 
+The repository currently focuses on TSPLIB data. You can extend `Graph.from_tsplib_math` or add new loaders for problem variants. References:
+- [Math TSP Data](https://www.math.uwaterloo.ca/tsp/data/index.html)
+- [TSPLIB95](http://comopt.ifi.uni-heidelberg.de/software/TSPLIB95/tsp/)
+
+Selected instances according with TSPLIB
+
+
+swiss42
+gr48
+berlin52
+prl76 -> pr226
+gr120
+ch150
+si175
+a280
+pcb442
 
 ## Contributing
-
-Contributions are welcome! Please follow our coding standards and include tests where applicable. For any questions, open an issue on the repository.
+Issues, bug fixes, and feature contributions are welcome. Please include relevant tests (`pytest`) and ensure formatting checks pass before submitting a pull request.
 
 ## License
-
-Distributed under the MIT License. See the [LICENSE](LICENSE) file for more information.
+Distributed under the MIT License. See the [LICENSE](LICENSE) file for details.
