@@ -4,3 +4,9 @@ __pycache__/
 .venv
 
 outputs/
+
+data/
+
+**.DS_Store
+
+*next_step.md
