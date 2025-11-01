@@ -57,8 +57,11 @@ class VNS_Solver:
 
     @staticmethod
     def tour_distance(tour, dist_matrix):
+        tour = np.asarray(tour, dtype=int)
         tour_shifted = np.roll(tour, -1)
-        return np.sum(dist_matrix[tour, tour_shifted])
+        lower = np.minimum(tour, tour_shifted)
+        upper = np.maximum(tour, tour_shifted)
+        return float(np.sum(dist_matrix[lower, upper]))
 
     @staticmethod
     def two_opt(tour, i, j):
@@ -137,7 +140,7 @@ class VNS_Solver:
         a, b, c, d = sorted(random.sample(range(1, core_length), 4))
         return cls.double_bridge_move(tour, a, b, c, d)
 
-    def local_search(self, tour: np.ndarray, operators=None) -> np.ndarray:
+    def local_search(self, tour: np.ndarray, current_distance: float, operators=None) -> np.ndarray:
         """Variable Neighborhood Descent over 2-opt, 2-exchange, and double bridge moves."""
         if operators is None:
             operators = [
@@ -157,18 +160,19 @@ class VNS_Solver:
                     f"Starting local search iteration trial {i} operator {operator.__name__}"
                 )
                 i += 1
-                candidate, was_improved = operator(current_tour)
+                old_distance = current_distance
+                candidate, was_improved, current_distance = operator(current_tour, current_distance)
                 if was_improved:
                     self.logger.info(
-                        f"Local search improvement found with {operator.__name__}"
+                        f"Local search improvement found with {operator.__name__} -> old_distance: {old_distance:.2f} vs current_distance: {current_distance:.2f}"
                     )
                     current_tour = candidate
                     improved = True
                     break  # restart from the first operator in the next iteration
         return current_tour
 
-    def _two_opt_first_improvement(self, tour: np.ndarray) -> tuple[np.ndarray, bool]:
-        current_distance = self.tour_distance(tour, self.distance_matrix)
+    def _two_opt_first_improvement(self, tour: np.ndarray, current_distance: float) -> tuple[np.ndarray, bool]:
+        self.logger.info("2-opt start distance: %.2f", current_distance)
         length = len(tour) - 1 if tour[0] == tour[-1] else len(tour)
         for i in range(1, length - 1):
             for j in range(i + 1, length):
@@ -177,13 +181,13 @@ class VNS_Solver:
                 candidate = self.two_opt(tour, i, j)
                 candidate_distance = self.tour_distance(candidate, self.distance_matrix)
                 if candidate_distance < current_distance:
-                    return candidate, True
-        return tour, False
+                    return candidate, True, candidate_distance
+        return tour, False, current_distance
 
     def _two_exchange_first_improvement(
-        self, tour: np.ndarray
+        self, tour: np.ndarray, current_distance: float
     ) -> tuple[np.ndarray, bool]:
-        current_distance = self.tour_distance(tour, self.distance_matrix)
+        self.logger.info("2-exchange start distance: %.2f", current_distance)
         length = len(tour) - 1 if tour[0] == tour[-1] else len(tour)
         if length < 3:
             return tour, False
@@ -193,16 +197,16 @@ class VNS_Solver:
                 candidate = self.two_exchange(tour, i, j)
                 candidate_distance = self.tour_distance(candidate, self.distance_matrix)
                 if candidate_distance < current_distance:
-                    return candidate, True
-        return tour, False
+                    return candidate, True, candidate_distance
+        return tour, False, current_distance
 
     def _one_insertion_first_improvement(
-        self, tour: np.ndarray
+        self, tour: np.ndarray, current_distance: float
     ) -> tuple[np.ndarray, bool]:
-        current_distance = self.tour_distance(tour, self.distance_matrix)
+        self.logger.info("1-insertion start distance: %.2f", current_distance)
         length = len(tour) - 1 if tour[0] == tour[-1] else len(tour)
         if length < 3:
-            return tour, False
+            return tour, False, current_distance
 
         for i in range(1, length):
             for j in range(1, length + 1):
@@ -211,22 +215,22 @@ class VNS_Solver:
                 candidate = self.one_insertion(tour, i, j)
                 candidate_distance = self.tour_distance(candidate, self.distance_matrix)
                 if candidate_distance < current_distance:
-                    return candidate, True
-        return tour, False
+                    return candidate, True, candidate_distance
+        return tour, False, current_distance
 
     def _double_bridge_first_improvement(
-        self, tour: np.ndarray
+        self, tour: np.ndarray, current_distance: float
     ) -> tuple[np.ndarray, bool]:
-        current_distance = self.tour_distance(tour, self.distance_matrix)
+        self.logger.info("Double-bridge start distance: %.2f", current_distance)
         is_closed = tour[0] == tour[-1]
         length = len(tour) - 1 if is_closed else len(tour)
         if length < 6:
-            return tour, False
+            return tour, False, current_distance
 
         # Exhaustive enumeration is O(n^4). Instead, sample a bounded number of candidate quadruples.
         max_checks = self.max_double_bridge_checks
         if max_checks == 0:
-            return tour, False
+            return tour, False, current_distance
 
         indices = list(range(1, length))
         tried: set[tuple[int, int, int, int]] = set()
@@ -244,8 +248,8 @@ class VNS_Solver:
             candidate = self.double_bridge_move(tour, a, b, c, d)
             candidate_distance = self.tour_distance(candidate, self.distance_matrix)
             if candidate_distance < current_distance:
-                return candidate, True
-        return tour, False
+                return candidate, True, candidate_distance
+        return tour, False, current_distance
 
     def shaking(self, tour, k):
         new_tour = tour.copy()
@@ -306,11 +310,14 @@ class VNS_Solver:
             time_end = time.time()
             exploration_time = time_end - time_start
             total_exploration_time += exploration_time
+            shaken_distance = self.tour_distance(k_tour, self.distance_matrix)
             self.logger.info(
-                f"Shaking phase completed in {exploration_time:.4f} seconds."
+                "Shaking phase completed in %.4f seconds (distance %.2f)",
+                exploration_time,
+                shaken_distance,
             )
             time_start = time.time()
-            new_tour = self.local_search(k_tour)
+            new_tour = self.local_search(k_tour, shaken_distance)
             time_end = time.time()
             exploitation_time = time_end - time_start
             total_exploitation_time += exploitation_time
