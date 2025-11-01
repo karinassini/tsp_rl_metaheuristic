@@ -2,6 +2,7 @@ class TSPConstraint:
     """
     Class to check constraints for a TSP solution.
     """
+
     def __init__(self, n_cities):
         self.n_cities = n_cities
 

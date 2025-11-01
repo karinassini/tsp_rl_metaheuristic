@@ -6,11 +6,13 @@ import logging
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
+
 class TSPSolver:
     """
     A class to solve the Traveling Salesman Problem (TSP) using greedy algorithms.
     Accepts a Graph object for flexibility.
     """
+
     def __init__(self, graph: Graph):
         """
         Initialize the TSP solver with a Graph object.
@@ -33,11 +35,14 @@ class TSPSolver:
         total_distance = 0
         current_city = start
 
-        for _ in range(self.n_cities - 1):
+        for initial_city in range(self.n_cities - 1):
             next_city = None
-            min_dist = float('inf')
-            for city in range(self.n_cities):
-                if not visited[city] and self.distance_matrix[current_city][city] < min_dist:
+            min_dist = float("inf")
+            for city in range(initial_city + 1, self.n_cities):
+                if (
+                    not visited[city]
+                    and self.distance_matrix[current_city][city] < min_dist
+                ):
                     min_dist = self.distance_matrix[current_city][city]
                     next_city = city
             if next_city is None:
