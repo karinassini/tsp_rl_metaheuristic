@@ -128,8 +128,8 @@ class Graph:
                             )
                         value = weights[idx]
                         idx += 1
-                        matrix[i, j] = value
-                        # matrix[j, i] = value # Symmetric
+                        row, col = (i, j) if i <= j else (j, i)
+                        matrix[row, col] = value
                 if idx != weights.size:
                     excess = weights.size - idx
                     if excess > 0:
@@ -167,7 +167,8 @@ class Graph:
                         value = int(round(dist))
                     else:  # CEIL_2D
                         value = math.ceil(dist)
-                    matrix[i, j] = value
+                    row, col = (i, j) if i <= j else (j, i)
+                    matrix[row, col] = value
                     # matrix[j, i] = value
         else:
             raise ValueError(f"Unsupported EDGE_WEIGHT_TYPE '{edge_weight_type}'.")
@@ -182,15 +183,26 @@ class Graph:
         for i in range(self.n_nodes):
             matrix[i][i] = 0
         for (i, j), dist in self.edges.items():
-            matrix[i][j] = dist
-            # matrix[j][i] = dist  # Assuming undirected graph
+            row, col = (i, j) if i <= j else (j, i)
+            matrix[row][col] = dist
+            # matrix[col][row] = dist  # Symmetric if needed
+        return matrix
+
+    def build_adj_matrix_full(self):
+        matrix = [[float("inf")] * self.n_nodes for _ in range(self.n_nodes)]
+        for i in range(self.n_nodes):
+            matrix[i][i] = 0
+        for (i, j), dist in self.edges.items():
+            row, col = (i, j) if i <= j else (j, i)
+            matrix[row][col] = dist
+            matrix[col][row] = dist  # Symmetric if needed
         return matrix
 
     def add_edge(self, i, j, dist):
-        self.edges[(i, j)] = dist
-        self.edges[(j, i)] = dist
-        self.adj_matrix[i][j] = dist
-        # self.adj_matrix[j][i] = dist
+        row, col = (i, j) if i <= j else (j, i)
+        self.edges[(row, col)] = dist
+        self.adj_matrix[row][col] = dist
+        # self.adj_matrix[col][row] = dist
 
     def get_distance_matrix(self):
         return self.adj_matrix

@@ -22,9 +22,9 @@ from src.structures.graph import Graph
 
 @dataclass
 class QLearningConfig:
-    alpha: float = 0.2
-    gamma: float = 0.9
-    epsilon: float = 0.3
+    alpha: float = 0.4
+    gamma: float = 0.8
+    epsilon: float = 0.4
     epsilon_min: float = 0.05
     epsilon_decay: float = 0.995
     episodes: int = 3000
@@ -142,7 +142,7 @@ def q_learning_tour(
     """Generate a tour using a Q-learning policy trained on the TSP instance."""
 
     cfg = cfg or QLearningConfig()
-    distance_matrix = np.asarray(graph.get_distance_matrix(), dtype=float)
+    distance_matrix = np.asarray(graph.build_adj_matrix_full(), dtype=float)
 
     if start is not None and start not in graph.nodes:
         raise ValueError("Provided start city is not part of the graph.")
@@ -167,7 +167,7 @@ def q_learning_tour(
         current = next_city
 
     tour.append(start_city)
-    return np.asarray(tour, dtype=int)
+    return np.asarray(tour, dtype=int), distance_matrix
 
 
 def nearest_neighbour_tour(graph: Graph, start: Optional[int] = None) -> np.ndarray:

@@ -5,7 +5,7 @@ import time
 import numpy as np
 from src.structures.graph import Graph
 from src.constraints.tsp_constraint import TSPConstraint
-from src.solver.initial_solution import nearest_neighbour_tour
+from src.solver.initial_solution import nearest_neighbour_tour, q_learning_tour, QLearningConfig
 
 
 class VNS_Solver:
@@ -140,7 +140,9 @@ class VNS_Solver:
         a, b, c, d = sorted(random.sample(range(1, core_length), 4))
         return cls.double_bridge_move(tour, a, b, c, d)
 
-    def local_search(self, tour: np.ndarray, current_distance: float, operators=None) -> np.ndarray:
+    def local_search(
+        self, tour: np.ndarray, current_distance: float, operators=None
+    ) -> np.ndarray:
         """Variable Neighborhood Descent over 2-opt, 2-exchange, and double bridge moves."""
         if operators is None:
             operators = [
@@ -161,7 +163,9 @@ class VNS_Solver:
                 )
                 i += 1
                 old_distance = current_distance
-                candidate, was_improved, current_distance = operator(current_tour, current_distance)
+                candidate, was_improved, current_distance = operator(
+                    current_tour, current_distance
+                )
                 if was_improved:
                     self.logger.info(
                         f"Local search improvement found with {operator.__name__} -> old_distance: {old_distance:.2f} vs current_distance: {current_distance:.2f}"
@@ -171,17 +175,46 @@ class VNS_Solver:
                     break  # restart from the first operator in the next iteration
         return current_tour
 
-    def _two_opt_first_improvement(self, tour: np.ndarray, current_distance: float) -> tuple[np.ndarray, bool]:
+    def _two_opt_first_improvement(
+        self, tour: np.ndarray, current_distance: float
+    ) -> tuple[np.ndarray, bool, float]:
+        """Return the first improving 2-opt move using incremental edge deltas.
+
+        The tour may be open or explicitly closed by repeating the starting city. The
+        inner loops enumerate non-adjacent edge pairs (a,b) and (c,d), skipping
+        consecutive indices so that the swap remains valid. For each candidate swap we
+        reuse the upper-triangular distance matrix and compute the local delta
+        ``(a,b) + (c,d) -> (a,c) + (b,d)`` without recomputing the full tour length. If a
+        negative delta is found the segment [i,j] is reversed, and the updated tour and
+        distance are returned immediately.
+        """
         self.logger.info("2-opt start distance: %.2f", current_distance)
-        length = len(tour) - 1 if tour[0] == tour[-1] else len(tour)
+        is_closed = tour[0] == tour[-1]
+        length = len(tour) - 1 if is_closed else len(tour)
+
+        def edge_cost(u: int, v: int) -> float:
+            lower, upper = (u, v) if u <= v else (v, u)
+            return self.distance_matrix[lower, upper]
+
+        core = tour[:-1] if is_closed else tour
+
         for i in range(1, length - 1):
             for j in range(i + 1, length):
                 if j - i == 1:
                     continue
-                candidate = self.two_opt(tour, i, j)
-                candidate_distance = self.tour_distance(candidate, self.distance_matrix)
-                if candidate_distance < current_distance:
-                    return candidate, True, candidate_distance
+
+                a, b = core[i - 1], core[i]
+                c, d = core[j], core[(j + 1) % length]
+
+                removed = edge_cost(a, b) + edge_cost(c, d)
+                added = edge_cost(a, c) + edge_cost(b, d)
+                delta = added - removed
+
+                if delta < 0:
+                    new_distance = current_distance + delta
+                    candidate = self.two_opt(tour, i, j)
+                    return candidate, True, new_distance
+
         return tour, False, current_distance
 
     def _two_exchange_first_improvement(
@@ -276,6 +309,12 @@ class VNS_Solver:
             self.logger.info(
                 f"Initial {method_key} tour: {tour.tolist()}, distance: {total_distance:.2f}"
             )
+        elif method_key in {"q_learning", "qlearning", "q-learn"}:
+            tour, full_distance_matrix = q_learning_tour(self.graph, start=start)
+            total_distance = self.tour_distance(tour, full_distance_matrix)
+            self.logger.info(
+                f"Initial q_learning tour: {tour.tolist()}, distance: {total_distance:.2f}"
+            )
         elif method_key == "random":
             tour = np.arange(self.n_cities)
             np.random.shuffle(tour)
@@ -288,7 +327,7 @@ class VNS_Solver:
         else:
             raise ValueError(
                 f"Unknown initialisation method '{self.method}'. "
-                "Supported values: 'greedy', 'nearest_neighbour', 'random'."
+                "Supported values: 'greedy', 'nearest_neighbour', 'random', 'q_learning'."
             )
 
         k = 1

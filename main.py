@@ -115,33 +115,33 @@ def main():
     # Creating the graph object
     # instance = "dj38_simplified.tsp"
     # graph = Graph.from_tsplib_math(f'instances/tsplib/{instance}')
-    # for i in ["swiss42.tsp", "a280.tsp", "berlin52.tsp", "ch130.tsp", "gr48.tsp", "gr120.tsp", "pcb442.tsp", "pr226.tsp", "si175.tsp"]:
+    # for i in ["swiss42.tsp", "a280.tsp", "berlin52.tsp", "ch150.tsp", "gr48.tsp", "gr120.tsp", "pcb442.tsp", "pr226.tsp", "si175.tsp"]:
 
-    # for i in ["berlin52.tsp","gr48.tsp","gr120.tsp" , "ch150.tsp","si175.tsp","pr226.tsp","a280.tsp", "pcb442.tsp"]:
-    instance = "swiss42.tsp"
-    print(f"Processing instance: {instance}")
-    graph = Graph.from_tsplib(f"{root}/instances/tsplib/{instance}")
+    for i in ["swiss42.tsp", "berlin52.tsp","gr48.tsp","gr120.tsp" , "ch150.tsp","si175.tsp","pr226.tsp","a280.tsp", "pcb442.tsp"]:
+        instance = i
+        print(f"Processing instance: {instance}")
+        graph = Graph.from_tsplib(f"{root}/instances/tsplib/{instance}")
 
-    # Print nodes and number of edges
-    print("Nodes:", graph.nodes)
-    print("Number of edges:", len(graph.edges))
+        # Print nodes and number of edges
+        print("Nodes:", graph.nodes)
+        print("Number of edges:", len(graph.edges))
 
-    # graph.visualize(save_dir=f"outputs/plots/{instance}_first_plot")
-    # test_greedy_solver(graph, instance)
-    # test_exact(graph, instance)
+        # graph.visualize(save_dir=f"outputs/plots/{instance}_first_plot")
+        # test_greedy_solver(graph, instance)
+        # test_exact(graph, instance)
 
-    custom_method = "random"
-    k_max = 200
-    current_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    for _ in range(30):
-        test_vns_solver(
-            graph,
-            instance,
-            k_max=k_max,
-            method=custom_method,
-            no_improvement_patience=25,
-            current_timestamp=current_timestamp,
-        )
+        custom_method = "q_learning"
+        k_max = 200
+        current_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        for _ in range(30):
+            test_vns_solver(
+                graph,
+                instance,
+                k_max=k_max,
+                method=custom_method,
+                no_improvement_patience=25,
+                current_timestamp=current_timestamp,
+            )
 
     # print(f"outputs/solutions/{instance.split('.')[0]}/")
     # #plot_solution_comparison(f"outputs/solutions/{instance.split('.')[0]}/vns/")
