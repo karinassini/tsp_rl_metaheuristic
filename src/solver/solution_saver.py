@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 import networkx as nx
+import numpy as np
 
 
 class SolutionSaver:
@@ -113,12 +114,65 @@ class VNSSummaryTracker:
     """Track repeated VNS runs and export consolidated metrics and plots."""
 
     def __init__(self) -> None:
-        self._history: Dict[Tuple[str, str, int], List[Dict[str, Any]]] = defaultdict(
-            list
-        )
-        self._summary_cache: Dict[str, Dict[Tuple[str, str, int], Dict[str, Any]]] = (
-            defaultdict(dict)
-        )
+        self._history: Dict[
+            Tuple[str, str, int, str], List[Dict[str, Any]]
+        ] = defaultdict(list)
+        self._summary_cache: Dict[
+            str, Dict[Tuple[str, str, int, str], Dict[str, Any]]
+        ] = defaultdict(dict)
+        self._cdf_cache: Dict[
+            str, Dict[Tuple[str, str, int, str], Dict[str, Dict[str, Any]]]
+        ] = defaultdict(dict)
+
+    @staticmethod
+    def _cdf_key_to_str(key: Tuple[str, str, int, str]) -> str:
+        instance, method, iteration_max, solver = key
+        return f"{instance}|{method}|{iteration_max}|{solver}"
+
+    @staticmethod
+    def _cdf_str_to_key(key_str: str) -> Tuple[str, str, int, str]:
+        instance, method, iteration_max, solver = key_str.split("|")
+        return instance, method, int(iteration_max), solver
+
+    def _persist_cdf_series(self, save_dir: str) -> None:
+        cache_for_dir = self._cdf_cache.get(save_dir)
+        if not cache_for_dir:
+            return
+
+        serializable: Dict[str, Dict[str, Any]] = {}
+        for key, series_by_label in cache_for_dir.items():
+            key_str = self._cdf_key_to_str(key)
+            serializable[key_str] = series_by_label
+
+        os.makedirs(save_dir, exist_ok=True)
+        path = os.path.join(save_dir, "time_to_target_data.json")
+        with open(path, "w", encoding="utf-8") as fp:
+            json.dump(serializable, fp, indent=2)
+
+    def _load_cdf_series(self, save_dir: str) -> None:
+        path = os.path.join(save_dir, "time_to_target_data.json")
+        if not os.path.exists(path):
+            return
+        with open(path, "r", encoding="utf-8") as fp:
+            data = json.load(fp)
+        cache_for_dir = self._cdf_cache.setdefault(save_dir, {})
+        for key_str, series_map in data.items():
+            key = self._cdf_str_to_key(key_str)
+            normalised: Dict[str, Dict[str, Any]] = {}
+            for label, payload in series_map.items():
+                if "probabilities" not in payload and "percentages" in payload:
+                    probs = [val / 100 for val in payload["percentages"]]
+                    payload["probabilities"] = probs
+                    payload.pop("percentages", None)
+                if "style" not in payload:
+                    payload["style"] = {
+                        "color": "forestgreen",
+                        "marker": "x",
+                        "label": label,
+                        "linewidth": 2,
+                    }
+                normalised[label] = payload
+            cache_for_dir[key] = normalised
 
     @staticmethod
     def _format_route(route: List[int]) -> str:
@@ -185,7 +239,7 @@ class VNSSummaryTracker:
             "instance",
             "method",
             "runs",
-            "k_max",
+            "iteration_max",
             "mean_total_distance",
             "std_total_distance",
             "best_total_distance",
@@ -200,6 +254,7 @@ class VNSSummaryTracker:
             "best_route",
             "best_exploration_time",
             "best_exploitation_time",
+            "solver"
         ]
 
         csv_filename = f"{instance_name}_{method}_summary.csv"
@@ -239,7 +294,8 @@ class VNSSummaryTracker:
         *,
         instance_name: str,
         method: str,
-        k_max: int,
+        iteration_max: int,
+        solver_name: str,
         total_distance: float,
         exploration_time: float,
         exploitation_time: float,
@@ -247,7 +303,7 @@ class VNSSummaryTracker:
         save_dir: str,
         best_known: Optional[float],
     ) -> Dict[str, Any]:
-        key = (instance_name, method, k_max)
+        key = (instance_name, method, iteration_max, solver_name)
         self._history[key].append(
             {
                 "total_distance": total_distance,
@@ -262,12 +318,14 @@ class VNSSummaryTracker:
             {
                 "instance": instance_name,
                 "method": method,
+                "solver": solver_name,
                 "runs": len(self._history[key]),
-                "k_max": k_max,
+                "iteration_max": iteration_max,
             }
         )
 
         self._summary_cache[save_dir][key] = summary
+        self._cdf_cache[save_dir].pop(key, None)
         self._write_summary_csv(save_dir, instance_name, method)
         return summary
 
@@ -276,12 +334,13 @@ class VNSSummaryTracker:
         *,
         instance_name: str,
         method: str,
-        k_max: int,
+        iteration_max: int,
         save_dir: str,
+    solver_name: str,
         normalize: bool = True,
         filename: str = "objective_trend.png",
     ) -> str:
-        key = (instance_name, method, k_max)
+        key = (instance_name, method, iteration_max, solver_name)
         if key not in self._history:
             raise ValueError("No history available for the requested configuration.")
 
@@ -329,13 +388,16 @@ class VNSSummaryTracker:
         *,
         instance_name: str,
         method: str,
-        k_max: int,
+        iteration_max: int,
         save_dir: str,
+        solver_name: str,
         filename: str = "time_to_target.png",
         tolerance: float = 1e-6,
+        store_key: Optional[str] = None,
+        style: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """Plot the time required to reach the best-known solution for each run."""
-        key = (instance_name, method, k_max)
+        """Plot cumulative probability of reaching a target solution over time."""
+        key = (instance_name, method, iteration_max, solver_name)
         if key not in self._history:
             raise ValueError("No history available for the requested configuration.")
 
@@ -347,117 +409,138 @@ class VNSSummaryTracker:
             )
 
         history = self._history[key]
-        successful_runs: List[int] = []
-        successful_times: List[float] = []
-        unsuccessful_runs: List[int] = []
-        unsuccessful_times: List[float] = []
-
-        for idx, entry in enumerate(history, start=1):
-            total_time = entry["exploration_time"] + entry["exploitation_time"]
-            if abs(entry["total_distance"] - best_known) <= tolerance:
-                successful_runs.append(idx)
-                successful_times.append(total_time)
-            else:
-                unsuccessful_runs.append(idx)
-                unsuccessful_times.append(total_time)
-
         total_runs = len(history)
-
-        fig, (ax_counts, ax_percentage) = plt.subplots(
-            1, 2, figsize=(12, 4), sharey=True
+        successful_times = sorted(
+            entry["exploration_time"] + entry["exploitation_time"]
+            for entry in history
+            if abs(entry["total_distance"] - best_known) <= tolerance
         )
 
+        plt.figure(figsize=(6, 4))
+        plot_style = {
+            "color": "forestgreen",
+            "marker": "x",
+            "label": method,
+            "linewidth": 2,
+        }
+        if style:
+            plot_style.update(style)
+        plot_style.setdefault("label", method)
+
+        dir_cache = self._cdf_cache[save_dir]
+
         if successful_times:
-            ordered_times = sorted(successful_times)
-            cumulative_counts = list(range(1, len(ordered_times) + 1))
-            cumulative_percentage = [
-                count / total_runs * 100 for count in cumulative_counts
-            ]
+            unique_times, counts = np.unique(successful_times, return_counts=True)
+            cumulative_counts = np.cumsum(counts)
+            cumulative_prob = cumulative_counts / total_runs
+            if len(unique_times) > 1:
+                point_count = max(len(unique_times) * 10, 200)
+                smooth_times = np.linspace(unique_times[0], unique_times[-1], point_count)
+                smooth_prob = np.interp(smooth_times, unique_times, cumulative_prob)
+            else:
+                smooth_times = unique_times
+                smooth_prob = cumulative_prob
 
-            ax_counts.plot(
-                cumulative_counts,
-                ordered_times,
-                marker="o",
-                color="forestgreen",
-                label="Reached target",
+            ax = plt.gca()
+            ax.plot(
+                smooth_times,
+                smooth_prob,
+                color=plot_style["color"],
+                linewidth=plot_style.get("linewidth", 2),
+                label=plot_style["label"],
             )
-            mean_time = mean(ordered_times)
-            ax_counts.axhline(
-                mean_time,
-                color="royalblue",
+            marker_symbol = plot_style.get("marker")
+            if marker_symbol:
+                ax.scatter(
+                    unique_times,
+                    cumulative_prob,
+                    color=plot_style["color"],
+                    marker=marker_symbol,
+                )
+            avg_time = mean(successful_times)
+            ax.set_xlim(left=unique_times[0])
+            ax.axvline(
+                avg_time,
+                color=plot_style["color"],
                 linestyle="--",
-                label=f"Mean TTT {mean_time:.2f}s",
+                linewidth=max(plot_style.get("linewidth", 2) * 0.75, 1.0),
+                alpha=0.7,
+                label="_nolegend_",
             )
-
-            ax_percentage.plot(
-                cumulative_percentage,
-                ordered_times,
-                marker="o",
-                color="forestgreen",
+            ax.text(
+                avg_time,
+                0.03,
+                f"{avg_time:.2f}s",
+                color=plot_style["color"],
+                rotation=90,
+                rotation_mode="anchor",
+                ha="left",
+                va="bottom",
+                fontsize=9,
             )
-            ax_percentage.axvline(
-                cumulative_percentage[-1],
-                color="dimgray",
-                linestyle="--",
-                label="Final % of runs",
-            )
+            if store_key is not None:
+                series_map = dir_cache.setdefault(key, {})
+                series_map[store_key] = {
+                    "times": unique_times.tolist(),
+                    "probabilities": cumulative_prob.tolist(),
+                    "mean_time": float(avg_time),
+                    "total_runs": total_runs,
+                    "style": plot_style,
+                }
+                self._persist_cdf_series(save_dir)
         else:
-            ax_counts.text(
+            plt.text(
                 0.5,
                 0.5,
                 "Target not reached",
                 ha="center",
                 va="center",
-                transform=ax_counts.transAxes,
+                transform=plt.gca().transAxes,
                 color="dimgray",
             )
-            ax_percentage.text(
-                0.5,
-                0.5,
-                "Target not reached",
-                ha="center",
-                va="center",
-                transform=ax_percentage.transAxes,
-                color="dimgray",
-            )
+            plt.ylim(0, 1)
+            if store_key is not None:
+                series_map = dir_cache.setdefault(key, {})
+                series_map[store_key] = {
+                    "times": [],
+                    "probabilities": [],
+                    "mean_time": None,
+                    "total_runs": total_runs,
+                    "style": plot_style,
+                }
+                self._persist_cdf_series(save_dir)
 
-        if unsuccessful_times:
-            ax_counts.scatter(
-                unsuccessful_runs,
-                unsuccessful_times,
-                color="salmon",
-                marker="x",
-                label="Not reached",
-            )
-            ax_percentage.scatter(
-                [0] * len(unsuccessful_times),
-                unsuccessful_times,
-                color="salmon",
-                marker="x",
-            )
-
-        ax_counts.set_title("Cumulative runs")
-        ax_counts.set_xlabel("Runs reaching target")
-        ax_counts.set_ylabel("Time to target (s)")
-        ax_counts.grid(True, linestyle=":", linewidth=0.5)
-        handles, labels = ax_counts.get_legend_handles_labels()
-        if handles:
-            ax_counts.legend()
-
-        ax_percentage.set_title("Cumulative runs (%)")
-        ax_percentage.set_xlabel("Runs reaching target (%)")
-        ax_percentage.set_ylabel("Time to target (s)")
-        ax_percentage.set_xlim(left=0, right=100)
-        ax_percentage.grid(True, linestyle=":", linewidth=0.5)
-        pct_handles, pct_labels = ax_percentage.get_legend_handles_labels()
-        if pct_handles:
-            ax_percentage.legend(loc="lower right")
-
-        fig.suptitle(f"Time to Target - {instance_name}")
-        fig.tight_layout(rect=(0, 0, 1, 0.95))
+        plt.title(f"Time to Target - {instance_name}")
+        plt.xlabel("Time to target (s)")
+        plt.ylabel("Cumulative probability")
+        plt.ylim(0, 1)
+        plt.grid(True, linestyle=":", linewidth=0.5)
+        if successful_times:
+            plt.legend(loc="lower right")
 
         os.makedirs(save_dir, exist_ok=True)
         plot_path = os.path.join(save_dir, filename)
-        fig.savefig(plot_path, bbox_inches="tight")
-        plt.close(fig)
+        plt.savefig(plot_path, bbox_inches="tight")
+        plt.close()
         return plot_path
+
+    def get_time_to_target_series(
+        self,
+        *,
+        instance_name: str,
+        method: str,
+        iteration_max: int,
+        save_dir: str,
+        solver_name: str,
+        key_name: str,
+    ) -> Dict[str, Any]:
+        key = (instance_name, method, iteration_max, solver_name)
+        cached = self._cdf_cache.get(save_dir, {}).get(key)
+        if not cached or key_name not in cached:
+            self._load_cdf_series(save_dir)
+            cached = self._cdf_cache.get(save_dir, {}).get(key)
+        if not cached or key_name not in cached:
+            raise ValueError(
+                "Requested time-to-target series is not cached. Run plot_time_to_target with store_key first."
+            )
+        return cached[key_name]

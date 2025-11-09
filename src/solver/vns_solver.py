@@ -2,7 +2,9 @@ import logging
 import os
 import random
 import time
+from queue import Queue
 import numpy as np
+from logging.handlers import QueueHandler, QueueListener
 from src.structures.graph import Graph
 from src.constraints.tsp_constraint import TSPConstraint
 from src.solver.initial_solution import nearest_neighbour_tour, q_learning_tour, QLearningConfig
@@ -49,11 +51,51 @@ class VNS_Solver:
         self.logger.propagate = False
         self.logger.handlers.clear()
 
+        formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
         file_handler = logging.FileHandler(log_path)
         file_handler.setLevel(logging.INFO)
-        formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
         file_handler.setFormatter(formatter)
-        self.logger.addHandler(file_handler)
+
+        self._log_queue = Queue(maxsize=0)
+        self._queue_handler = QueueHandler(self._log_queue)
+        self._queue_handler.setLevel(logging.INFO)
+        self.logger.addHandler(self._queue_handler)
+
+        self._queue_listener = QueueListener(self._log_queue, file_handler)
+        self._queue_listener.start()
+        self._queue_listener_stopped = False
+
+    def _stop_logging(self) -> None:
+        """Flush and stop the asynchronous logging listener."""
+        if getattr(self, "_queue_listener_stopped", True):
+            return
+        try:
+            self._queue_listener.stop()
+        finally:
+            for handler in getattr(self._queue_listener, "handlers", ()):  # pragma: no branch
+                try:
+                    handler.close()
+                except Exception:  # pragma: no cover - best effort clean-up
+                    pass
+            self._queue_listener = None
+            if getattr(self, "_queue_handler", None) is not None:
+                try:
+                    self.logger.removeHandler(self._queue_handler)
+                except ValueError:
+                    pass
+                try:
+                    self._queue_handler.close()
+                except Exception:
+                    pass
+                self._queue_handler = None
+            self._log_queue = None
+            self._queue_listener_stopped = True
+
+    def __del__(self):  # pragma: no cover - defensive cleanup
+        try:
+            self._stop_logging()
+        except Exception:
+            pass
 
     @staticmethod
     def tour_distance(tour, dist_matrix):
@@ -162,18 +204,18 @@ class VNS_Solver:
                     f"Starting local search iteration trial {i} operator {operator.__name__}"
                 )
                 i += 1
-                old_distance = current_distance
+                old_distance_ls = current_distance
                 candidate, was_improved, current_distance = operator(
                     current_tour, current_distance
                 )
                 if was_improved:
                     self.logger.info(
-                        f"Local search improvement found with {operator.__name__} -> old_distance: {old_distance:.2f} vs current_distance: {current_distance:.2f}"
+                        f"Local search improvement found with {operator.__name__} -> old_distance: {old_distance_ls:.2f} vs current_distance: {current_distance:.2f}"
                     )
                     current_tour = candidate
                     improved = True
                     break  # restart from the first operator in the next iteration
-        return current_tour
+        return current_tour, current_distance
 
     def _two_opt_first_improvement(
         self, tour: np.ndarray, current_distance: float
@@ -293,12 +335,18 @@ class VNS_Solver:
             new_tour = self.random_double_bridge(new_tour)
         return new_tour
 
-    def vns_solve(self, start=0, k_max=500, no_improvement_patience: int | None = None):
+    def vns_solve(
+        self,
+        start: int = 0,
+        iteration_max: int = 500,
+        k_max: int = 2,
+        max_non_improving_iterations: int = 10,
+    ):
         """
         Solve the TSP using Variable Neighborhood Search (VNS) and log the process.
         :param start: Index of the starting city.
-        :param k_max: Maximum number of neighborhoods.
-        :param no_improvement_patience: Optional cap on consecutive non-improving iterations before early stop.
+        :param iteration_max: Maximum number of outer VNS iterations.
+        :param k_max: Maximum neighborhood depth for the shaking phase.
         :return: (tour, total_distance, total_exploration_time, total_exploitation_time)
         """
         method_key = self.method.lower() if isinstance(self.method, str) else "random"
@@ -330,72 +378,102 @@ class VNS_Solver:
                 "Supported values: 'greedy', 'nearest_neighbour', 'random', 'q_learning'."
             )
 
-        k = 1
+        total_distance = float(total_distance)
         total_exploration_time = 0
         total_exploitation_time = 0
         iteration = 1
-        consecutive_non_improvements = 0
-        patience = None
-        if no_improvement_patience is not None:
-            patience = max(1, int(no_improvement_patience))
-            self.logger.info(
-                "Early stopping enabled: patience set to %d consecutive non-improving iterations.",
-                patience,
-            )
-        while k <= k_max:
-            self.logger.info(f"Iteration {iteration} - k: {k}")
-            time_start = time.time()
-            k_tour = self.shaking(tour, k)
-            time_end = time.time()
-            exploration_time = time_end - time_start
-            total_exploration_time += exploration_time
-            shaken_distance = self.tour_distance(k_tour, self.distance_matrix)
-            self.logger.info(
-                "Shaking phase completed in %.4f seconds (distance %.2f)",
-                exploration_time,
-                shaken_distance,
-            )
-            time_start = time.time()
-            new_tour = self.local_search(k_tour, shaken_distance)
-            time_end = time.time()
-            exploitation_time = time_end - time_start
-            total_exploitation_time += exploitation_time
-            self.logger.info(
-                f"Local search phase completed in {exploitation_time:.4f} seconds."
-            )
-            old_distance = self.tour_distance(tour, self.distance_matrix)
-            new_distance = self.tour_distance(new_tour, self.distance_matrix)
-            self.logger.info(
-                f"Old distance: {old_distance:.2f}, New distance: {new_distance:.2f}"
-            )
-            if new_distance < old_distance:
-                self.logger.info("Found an improved tour. Resetting k to 1.")
-                tour = new_tour
+        iteration_limit = max(1, int(iteration_max)) if iteration_max is not None else 1
+        max_neighbourhood = max(1, int(k_max))
+        consecutive_non_improving_iterations = 0
+        max_non_improving_iterations = max_non_improving_iterations
+
+        try:
+            while iteration <= iteration_limit:
+                self.logger.info("=== Iteration %d ===", iteration)
                 k = 1
-                consecutive_non_improvements = 0
-            else:
-                consecutive_non_improvements += 1
-                k += 1
-                self.logger.info("No improvement, increasing k.")
-                if patience is not None and consecutive_non_improvements >= patience:
+                improved_in_iteration = False
+
+                while k <= max_neighbourhood:
+                    self.logger.info("Iteration %d - neighbourhood k=%d", iteration, k)
+                    time_start = time.time()
+                    k_tour = self.shaking(tour, k)
+                    time_end = time.time()
+                    exploration_time = time_end - time_start
+                    total_exploration_time += exploration_time
+                    shaken_distance = self.tour_distance(k_tour, self.distance_matrix)
                     self.logger.info(
-                        "Early stopping triggered after %d consecutive non-improving iterations.",
-                        consecutive_non_improvements,
+                        "Shaking phase completed in %.4f seconds (distance %.2f)",
+                        exploration_time,
+                        shaken_distance,
                     )
-                    break
-            iteration += 1
-        if not self.constraint.is_valid_tour(tour):
-            self.logger.warning("Solution does not satisfy TSP constraints.")
-        total_distance = self.tour_distance(tour, self.distance_matrix)
-        self.logger.info(
-            f"Final tour: {tour.tolist()}, total distance: {total_distance:.2f}"
-        )
-        total_distance = float(total_distance)
-        total_exploration_time = float(total_exploration_time)
-        total_exploitation_time = float(total_exploitation_time)
-        return (
-            tour.tolist(),
-            total_distance,
-            total_exploration_time,
-            total_exploitation_time,
-        )
+
+                    time_start = time.time()
+                    new_tour, new_distance = self.local_search(k_tour, shaken_distance)
+                    time_end = time.time()
+                    exploitation_time = time_end - time_start
+                    total_exploitation_time += exploitation_time
+                    self.logger.info(
+                        "Local search phase completed in %.4f seconds (distance %.2f)",
+                        exploitation_time,
+                        new_distance,
+                    )
+
+                    old_distance = self.tour_distance(tour, self.distance_matrix)
+                    self.logger.info(
+                        "Old distance: %.2f, New distance: %.2f", old_distance, new_distance
+                    )
+
+                    if new_distance < old_distance:
+                        self.logger.info(
+                            "Improvement found at k=%d. Restarting neighbourhood search from k=1.",
+                            k,
+                        )
+                        tour = new_tour
+                        total_distance = new_distance
+                        improved_in_iteration = True
+                        k = 1
+                    else:
+                        self.logger.info(
+                            "No improvement at k=%d. Moving to the next neighbourhood.", k
+                        )
+                        k += 1
+
+                if improved_in_iteration:
+                    consecutive_non_improving_iterations = 0
+                else:
+                    consecutive_non_improving_iterations += 1
+                    self.logger.info(
+                        "No improvement in iteration %d (%d/%d without improvement).",
+                        iteration,
+                        consecutive_non_improving_iterations,
+                        max_non_improving_iterations,
+                    )
+                    if (
+                        consecutive_non_improving_iterations
+                        >= max_non_improving_iterations
+                    ):
+                        self.logger.info(
+                            "Terminating search after %d consecutive non-improving iterations.",
+                            consecutive_non_improving_iterations,
+                        )
+                        break
+
+                iteration += 1
+
+            if not self.constraint.is_valid_tour(tour):
+                self.logger.warning("Solution does not satisfy TSP constraints.")
+            total_distance = self.tour_distance(tour, self.distance_matrix)
+            self.logger.info(
+                f"Final tour: {tour.tolist()}, total distance: {total_distance:.2f}"
+            )
+            total_distance = float(total_distance)
+            total_exploration_time = float(total_exploration_time)
+            total_exploitation_time = float(total_exploitation_time)
+            return (
+                tour.tolist(),
+                total_distance,
+                total_exploration_time,
+                total_exploitation_time,
+            )
+        finally:
+            self._stop_logging()
