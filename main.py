@@ -1,14 +1,15 @@
 import sys
 import os
-from typing import List, Optional
 
 from src.structures.graph import Graph
 from src.solver.greedy_solver import TSPSolver
 from src.solver.solution_saver import SolutionSaver, VNSSummaryTracker
 from src.solver.exact_solver import TSPSolver as ExactTSPSolver
 from src.solver.vns_solver import VNS_Solver
-from src.utils.plot_comparison_from_json import SolutionComparisonPlotter
+from src.solver.vns_solver_q_learning import VNS_Solver_Q_Learnings
+from utils.plot_comparison_from_json import SolutionComparisonPlotter
 from datetime import datetime
+from config import VNSMainConfig
 
 # Add the 'src' directory to the Python module search path
 src_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "src")
@@ -26,9 +27,12 @@ def test_vns_solver(
     instance,
     save_dir=None,
     method="greedy",
-    k_max=None,
-    no_improvement_patience=None,
+    max_non_improving_iterations=20,
+    iteration_max=None,
+    k_max=2,
+    start_city=0,
     current_timestamp=None,
+
 ):
     """Run a single VNS experiment and persist metrics/plots.
 
@@ -43,13 +47,15 @@ def test_vns_solver(
         if save_dir
         else f"outputs/solutions/{name_without_extension}/vns/{method}/{current_timestamp}/"
     )
-    if k_max is not None:
-        k_max = k_max
-    else:
-        k_max = 500 if graph.n_nodes <= 50 else 1000
+    if iteration_max is None:
+        iteration_max = 500 if graph.n_nodes <= 50 else 1000
     solver = VNS_Solver(graph, save_dir, method=method)
+    solver_name = type(solver).__name__
     tour, total_distance, exploration_time, exploitation_time = solver.vns_solve(
-        start=0, k_max=k_max, no_improvement_patience=no_improvement_patience
+        start=start_city,
+        iteration_max=iteration_max,
+        k_max=k_max,
+        max_non_improving_iterations=max_non_improving_iterations,
     )
     print("VNS Tour:", tour)
     print("VNS Total distance:", total_distance)
@@ -62,15 +68,17 @@ def test_vns_solver(
         total_distance,
         exploration_time=exploration_time,
         exploitation_time=exploitation_time,
-        k_max=k_max,
+        iteration_max=iteration_max,
         method=method,
+        solver=solver_name,
     )  # saves as JSON
     # saver.plot_solution_graph(tour, graph.get_distance_matrix(), filename=f"outputs/solutions/{name_without_extension}/vns/solution_graph.png")
 
     summary = SUMMARY_TRACKER.record_run(
         instance_name=name_without_extension,
         method=method,
-        k_max=k_max,
+        iteration_max=iteration_max,
+        solver_name=solver_name,
         total_distance=total_distance,
         exploration_time=exploration_time,
         exploitation_time=exploitation_time,
@@ -82,16 +90,19 @@ def test_vns_solver(
     plot_path = SUMMARY_TRACKER.plot_objective_trend(
         instance_name=name_without_extension,
         method=method,
-        k_max=k_max,
+        iteration_max=iteration_max,
         save_dir=save_dir,
+        solver_name=solver_name,
     )
 
     try:
         ttt_plot_path = SUMMARY_TRACKER.plot_time_to_target(
             instance_name=name_without_extension,
             method=method,
-            k_max=k_max,
+            iteration_max=iteration_max,
             save_dir=save_dir,
+            solver_name=solver_name,
+            store_key=method,
         )
     except ValueError as exc:
         ttt_plot_path = None
@@ -112,35 +123,27 @@ def plot_solution_comparison(directory):
 
 def main():
     """Entry point used for quick local experiments with the available solvers."""
-    # Creating the graph object
-    # instance = "dj38_simplified.tsp"
-    # graph = Graph.from_tsplib_math(f'instances/tsplib/{instance}')
-    # for i in ["swiss42.tsp", "a280.tsp", "berlin52.tsp", "ch150.tsp", "gr48.tsp", "gr120.tsp", "pcb442.tsp", "pr226.tsp", "si175.tsp"]:
+    config = VNSMainConfig()
 
-    for i in ["swiss42.tsp", "berlin52.tsp","gr48.tsp","gr120.tsp" , "ch150.tsp","si175.tsp","pr226.tsp","a280.tsp", "pcb442.tsp"]:
-        instance = i
+    for instance in config.instances:
         print(f"Processing instance: {instance}")
         graph = Graph.from_tsplib(f"{root}/instances/tsplib/{instance}")
 
-        # Print nodes and number of edges
         print("Nodes:", graph.nodes)
         print("Number of edges:", len(graph.edges))
 
-        # graph.visualize(save_dir=f"outputs/plots/{instance}_first_plot")
-        # test_greedy_solver(graph, instance)
-        # test_exact(graph, instance)
-
-        custom_method = "q_learning"
-        k_max = 200
         current_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        for _ in range(30):
+        for _ in range(config.repeats):
             test_vns_solver(
                 graph,
                 instance,
-                k_max=k_max,
-                method=custom_method,
-                no_improvement_patience=25,
+                save_dir=config.save_dir,
+                iteration_max=config.iteration_max,
+                method=config.method,
                 current_timestamp=current_timestamp,
+                max_non_improving_iterations=config.max_non_improving_iterations,
+                k_max=config.k_max,
+                start_city=config.start_city,
             )
 
     # print(f"outputs/solutions/{instance.split('.')[0]}/")
