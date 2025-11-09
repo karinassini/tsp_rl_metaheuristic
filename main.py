@@ -32,14 +32,14 @@ def test_vns_solver(
     k_max=2,
     start_city=0,
     current_timestamp=None,
-
+    should_plot: bool = True,
 ):
     """Run a single VNS experiment and persist metrics/plots.
 
     The helper builds a save directory, executes the solver, stores the JSON
     solution via `SolutionSaver`, updates the rolling `VNSSummaryTracker`, and
-    renders both the objective trend and time-to-target plots (when the best
-    reference is available).
+    optionally renders the objective trend and time-to-target plots when
+    `should_plot` is True and the best reference is available.
     """
     name_without_extension = instance.split(".")[0]
     save_dir = (
@@ -86,27 +86,25 @@ def test_vns_solver(
         save_dir=save_dir,
         best_known=saver.best_total_distance,
     )
-
-    plot_path = SUMMARY_TRACKER.plot_objective_trend(
-        instance_name=name_without_extension,
-        method=method,
-        iteration_max=iteration_max,
-        save_dir=save_dir,
-        solver_name=solver_name,
-    )
-
-    try:
-        ttt_plot_path = SUMMARY_TRACKER.plot_time_to_target(
-            instance_name=name_without_extension,
-            method=method,
-            iteration_max=iteration_max,
-            save_dir=save_dir,
-            solver_name=solver_name,
-            store_key=method,
-        )
-    except ValueError as exc:
-        ttt_plot_path = None
-        print(f"Skipping time-to-target plot: {exc}")
+    if should_plot:
+        try:
+            SUMMARY_TRACKER.plot_objective_trend(
+                instance_name=name_without_extension,
+                method=method,
+                iteration_max=iteration_max,
+                save_dir=save_dir,
+                solver_name=solver_name,
+            )
+            SUMMARY_TRACKER.plot_time_to_target(
+                instance_name=name_without_extension,
+                method=method,
+                iteration_max=iteration_max,
+                save_dir=save_dir,
+                solver_name=solver_name,
+                store_key=method,
+            )
+        except ValueError as exc:
+            print(f"Skipping time-to-target plot: {exc}")
 
     print(
         "VNS aggregated summary: runs={runs}, mean={mean_total_distance:.4f}, "
@@ -133,7 +131,8 @@ def main():
         print("Number of edges:", len(graph.edges))
 
         current_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        for _ in range(config.repeats):
+        for run_idx in range(config.repeats):
+            is_last_run = run_idx == config.repeats - 1
             test_vns_solver(
                 graph,
                 instance,
@@ -144,6 +143,7 @@ def main():
                 max_non_improving_iterations=config.max_non_improving_iterations,
                 k_max=config.k_max,
                 start_city=config.start_city,
+                should_plot=is_last_run,
             )
 
     # print(f"outputs/solutions/{instance.split('.')[0]}/")

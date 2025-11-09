@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
+from itertools import cycle
 from pathlib import Path
 from typing import Dict, Iterable, Iterator, Tuple
 
@@ -50,11 +51,26 @@ def plot_time_to_target_collection(
 
     per_instance: Dict[str, list[Dict[str, object]]] = defaultdict(list)
     label_counters: Dict[str, int] = {}
+    color_cycle = cycle([
+        "#1f77b4",
+        "#d62728",
+        "#2ca02c",
+        "#ff7f0e",
+        "#9467bd",
+        "#8c564b",
+        "#e377c2",
+        "#7f7f7f",
+        "#bcbd22",
+        "#17becf",
+    ])
+    file_colors: Dict[str, str] = {}
 
     for json_path in _iter_json_files(json_sources):
         file_stem = json_path.stem
         with json_path.open("r", encoding="utf-8") as fp:
             payload = json.load(fp)
+
+        color = file_colors.setdefault(file_stem or "series", next(color_cycle))
 
         for key, series_map in payload.items():
             instance, method, iteration_max, solver = _parse_key(key)
@@ -65,11 +81,15 @@ def plot_time_to_target_collection(
                 style = dict(series.get("style", {}))
                 base_label = style.get("label") or series_name or default_label
                 style["label"] = _compose_label(base_label, label_counters)
+                style["color"] = color
 
                 per_instance[instance].append(
                     {
                         "times": times,
                         "probabilities": probabilities,
+                        "total_runs": int(series.get("total_runs", len(times))),
+                        "success_count": int(series.get("success_count", len(times))),
+                        "failures": int(series.get("failures", 0)),
                         "mean_time": series.get("mean_time"),
                         "style": style,
                     }
@@ -83,16 +103,25 @@ def plot_time_to_target_collection(
         min_time: float | None = None
 
         for series in series_list:
-            times = series["times"]
-            probabilities = series["probabilities"]
+            raw_times = np.asarray(series.get("times", []), dtype=float)
+            if raw_times.size == 0:
+                continue
+
+            order = np.argsort(raw_times)
+            times = raw_times[order]
+            total_runs = int(series.get("total_runs") or times.size)
+            if total_runs <= 0:
+                total_runs = times.size
+            count = int(series.get("success_count") or times.size)
+            if count <= 0 or count > times.size:
+                count = times.size
+            probabilities = (np.arange(1, count + 1) - 0.5) / total_runs
+            times = times[:count]
             style = series.get("style") or {}
             color = style.get("color", "forestgreen")
             linewidth = style.get("linewidth", 2)
             marker = style.get("marker", "x")
             label = style.get("label")
-
-            if len(times) == 0:
-                continue
 
             first_time = float(times[0])
             min_time = first_time if min_time is None else min(min_time, first_time)

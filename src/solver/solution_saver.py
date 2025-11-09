@@ -336,7 +336,7 @@ class VNSSummaryTracker:
         method: str,
         iteration_max: int,
         save_dir: str,
-    solver_name: str,
+        solver_name: str,
         normalize: bool = True,
         filename: str = "objective_trend.png",
     ) -> str:
@@ -415,6 +415,7 @@ class VNSSummaryTracker:
             for entry in history
             if abs(entry["total_distance"] - best_known) <= tolerance
         )
+        failures = total_runs - len(successful_times)
 
         plt.figure(figsize=(6, 4))
         plot_style = {
@@ -430,16 +431,16 @@ class VNSSummaryTracker:
         dir_cache = self._cdf_cache[save_dir]
 
         if successful_times:
-            unique_times, counts = np.unique(successful_times, return_counts=True)
-            cumulative_counts = np.cumsum(counts)
-            cumulative_prob = cumulative_counts / total_runs
-            if len(unique_times) > 1:
-                point_count = max(len(unique_times) * 10, 200)
-                smooth_times = np.linspace(unique_times[0], unique_times[-1], point_count)
-                smooth_prob = np.interp(smooth_times, unique_times, cumulative_prob)
+            sorted_times = np.asarray(successful_times, dtype=float)
+            success_count = len(sorted_times)
+            probabilities = (np.arange(1, success_count + 1) - 0.5) / total_runs
+            if success_count > 1:
+                point_count = max(success_count * 10, 200)
+                smooth_times = np.linspace(sorted_times[0], sorted_times[-1], point_count)
+                smooth_prob = np.interp(smooth_times, sorted_times, probabilities)
             else:
-                smooth_times = unique_times
-                smooth_prob = cumulative_prob
+                smooth_times = sorted_times
+                smooth_prob = probabilities
 
             ax = plt.gca()
             ax.plot(
@@ -452,13 +453,13 @@ class VNSSummaryTracker:
             marker_symbol = plot_style.get("marker")
             if marker_symbol:
                 ax.scatter(
-                    unique_times,
-                    cumulative_prob,
+                    sorted_times,
+                    probabilities,
                     color=plot_style["color"],
                     marker=marker_symbol,
                 )
             avg_time = mean(successful_times)
-            ax.set_xlim(left=unique_times[0])
+            ax.set_xlim(left=sorted_times[0])
             ax.axvline(
                 avg_time,
                 color=plot_style["color"],
@@ -481,10 +482,12 @@ class VNSSummaryTracker:
             if store_key is not None:
                 series_map = dir_cache.setdefault(key, {})
                 series_map[store_key] = {
-                    "times": unique_times.tolist(),
-                    "probabilities": cumulative_prob.tolist(),
+                    "times": sorted_times.tolist(),
+                    "probabilities": probabilities.tolist(),
                     "mean_time": float(avg_time),
                     "total_runs": total_runs,
+                    "success_count": success_count,
+                    "failures": failures,
                     "style": plot_style,
                 }
                 self._persist_cdf_series(save_dir)
@@ -506,6 +509,8 @@ class VNSSummaryTracker:
                     "probabilities": [],
                     "mean_time": None,
                     "total_runs": total_runs,
+                    "success_count": 0,
+                    "failures": failures,
                     "style": plot_style,
                 }
                 self._persist_cdf_series(save_dir)
