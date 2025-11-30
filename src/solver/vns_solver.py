@@ -22,6 +22,8 @@ class VNS_Solver:
         save_dir: str = None,
         method="random",
         max_double_bridge_checks: int = 250,
+        best_known_distance: float | None = None,
+        timestamp: str | None = None,
     ):
         """
         Initialize the VNS solver with a Graph object.
@@ -36,17 +38,19 @@ class VNS_Solver:
         self.save_dir = save_dir
         self.method = method  # Change to "random" to use a random initial solution
         self.max_double_bridge_checks = max(0, max_double_bridge_checks)
+        self.best_known_distance = best_known_distance
+        self.best_known_hit_iteration: int | None = None
+        self.timestamp = timestamp if timestamp is not None else time.strftime("%Y%m%d_%H%M%S")
 
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
         if self.save_dir:
             logs_dir = os.path.join(self.save_dir, "logs")
             os.makedirs(logs_dir, exist_ok=True)
             log_path = os.path.join(
-                logs_dir, f"vns_steps_{timestamp}_{self.method}.log"
+                logs_dir, f"vns_steps_{self.timestamp}_{self.method}.log"
             )
         else:
-            log_path = f"vns_steps_{timestamp}_{self.method}.log"
-        self.logger = logging.getLogger(f"vns_solver.{timestamp}.{id(self)}")
+            log_path = f"vns_steps_{self.timestamp}_{self.method}.log"
+        self.logger = logging.getLogger(f"vns_solver.{self.timestamp}.{id(self)}")
         self.logger.setLevel(logging.INFO)
         self.logger.propagate = False
         self.logger.handlers.clear()
@@ -90,6 +94,15 @@ class VNS_Solver:
                 self._queue_handler = None
             self._log_queue = None
             self._queue_listener_stopped = True
+
+    def _record_best_known_hit(self, distance: float, iteration_marker: int) -> None:
+        """Persist the first iteration when the best-known distance is matched."""
+        if self.best_known_distance is None:
+            return
+        if self.best_known_hit_iteration is not None:
+            return
+        if abs(distance - self.best_known_distance) <= 1e-6:
+            self.best_known_hit_iteration = iteration_marker
 
     def __del__(self):  # pragma: no cover - defensive cleanup
         try:
@@ -261,52 +274,146 @@ class VNS_Solver:
 
     def _two_exchange_first_improvement(
         self, tour: np.ndarray, current_distance: float
-    ) -> tuple[np.ndarray, bool]:
+    ) -> tuple[np.ndarray, bool, float]:
         self.logger.info("2-exchange start distance: %.2f", current_distance)
-        length = len(tour) - 1 if tour[0] == tour[-1] else len(tour)
+        is_closed = tour[0] == tour[-1]
+        length = len(tour) - 1 if is_closed else len(tour)
         if length < 3:
-            return tour, False
+            return tour, False, current_distance
+
+        def edge_cost(u: int | None, v: int | None) -> float:
+            if u is None or v is None:
+                return 0.0
+            lower, upper = (u, v) if u <= v else (v, u)
+            return self.distance_matrix[lower, upper]
+
+        core = tour[:-1] if is_closed else tour
 
         for i in range(1, length - 1):
             for j in range(i + 1, length):
-                candidate = self.two_exchange(tour, i, j)
-                candidate_distance = self.tour_distance(candidate, self.distance_matrix)
-                if candidate_distance < current_distance:
-                    return candidate, True, candidate_distance
+                city_i = core[i]
+                city_j = core[j]
+
+                prev_i = core[i - 1] if i > 0 else (core[-1] if is_closed else None)
+                next_i = core[(i + 1) % length] if (is_closed or i + 1 < length) else None
+
+                prev_j = core[j - 1] if j > 0 else (core[-1] if is_closed else None)
+                next_j = core[(j + 1) % length] if (is_closed or j + 1 < length) else None
+
+                adjacent = j == i + 1
+                if adjacent:
+                    removed = edge_cost(prev_i, city_i) + edge_cost(city_j, next_j)
+                    added = edge_cost(prev_i, city_j) + edge_cost(city_i, next_j)
+                else:
+                    removed = (
+                        edge_cost(prev_i, city_i)
+                        + edge_cost(city_i, next_i)
+                        + edge_cost(prev_j, city_j)
+                        + edge_cost(city_j, next_j)
+                    )
+                    added = (
+                        edge_cost(prev_i, city_j)
+                        + edge_cost(city_j, next_i)
+                        + edge_cost(prev_j, city_i)
+                        + edge_cost(city_i, next_j)
+                    )
+
+                delta = added - removed
+                if delta < 0:
+                    new_distance = current_distance + delta
+                    candidate = self.two_exchange(tour, i, j)
+                    return candidate, True, new_distance
+
         return tour, False, current_distance
 
     def _one_insertion_first_improvement(
         self, tour: np.ndarray, current_distance: float
-    ) -> tuple[np.ndarray, bool]:
+    ) -> tuple[np.ndarray, bool, float]:
         self.logger.info("1-insertion start distance: %.2f", current_distance)
-        length = len(tour) - 1 if tour[0] == tour[-1] else len(tour)
+        is_closed = tour[0] == tour[-1]
+        length = len(tour) - 1 if is_closed else len(tour)
         if length < 3:
             return tour, False, current_distance
 
+        def edge_cost(u: int, v: int) -> float:
+            lower, upper = (u, v) if u <= v else (v, u)
+            return self.distance_matrix[lower, upper]
+
+        core = tour[:-1] if is_closed else tour
+
         for i in range(1, length):
+            city = core[i]
+            prev_i = core[i - 1] if i > 0 else (core[-1] if is_closed else None)
+            next_i = core[(i + 1) % length] if (is_closed or i + 1 < length) else None
+
+            removal_delta = 0.0
+            if prev_i is not None:
+                removal_delta -= edge_cost(prev_i, city)
+            if next_i is not None:
+                removal_delta -= edge_cost(city, next_i)
+                if prev_i is not None:
+                    removal_delta += edge_cost(prev_i, next_i)
+
+            core_removed = np.delete(core, i)
+            reduced_len = len(core_removed)
+            if reduced_len == 0:
+                continue
+
             for j in range(1, length + 1):
                 if i == j or j == i + 1:
                     continue
-                candidate = self.one_insertion(tour, i, j)
-                candidate_distance = self.tour_distance(candidate, self.distance_matrix)
-                if candidate_distance < current_distance:
-                    return candidate, True, candidate_distance
+
+                insert_idx = j
+                if insert_idx > i:
+                    insert_idx -= 1
+
+                if insert_idx < 0 or insert_idx > reduced_len:
+                    continue
+
+                if is_closed:
+                    prev_new = core_removed[(insert_idx - 1) % reduced_len]
+                    next_new = core_removed[insert_idx % reduced_len]
+                else:
+                    prev_new = core_removed[insert_idx - 1] if insert_idx > 0 else None
+                    next_new = core_removed[insert_idx] if insert_idx < reduced_len else None
+
+                insertion_delta = 0.0
+                if prev_new is not None and next_new is not None:
+                    insertion_delta -= edge_cost(prev_new, next_new)
+                if prev_new is not None:
+                    insertion_delta += edge_cost(prev_new, city)
+                if next_new is not None:
+                    insertion_delta += edge_cost(city, next_new)
+
+                delta = removal_delta + insertion_delta
+                if delta < 0:
+                    new_distance = current_distance + delta
+                    candidate = self.one_insertion(tour, i, j)
+                    return candidate, True, new_distance
+
         return tour, False, current_distance
 
     def _double_bridge_first_improvement(
         self, tour: np.ndarray, current_distance: float
-    ) -> tuple[np.ndarray, bool]:
+    ) -> tuple[np.ndarray, bool, float]:
         self.logger.info("Double-bridge start distance: %.2f", current_distance)
         is_closed = tour[0] == tour[-1]
         length = len(tour) - 1 if is_closed else len(tour)
         if length < 6:
             return tour, False, current_distance
 
+        def edge_cost(u: int | None, v: int | None) -> float:
+            if u is None or v is None:
+                return 0.0
+            lower, upper = (u, v) if u <= v else (v, u)
+            return self.distance_matrix[lower, upper]
+
         # Exhaustive enumeration is O(n^4). Instead, sample a bounded number of candidate quadruples.
         max_checks = self.max_double_bridge_checks
         if max_checks == 0:
             return tour, False, current_distance
 
+        core = tour[:-1] if is_closed else tour
         indices = list(range(1, length))
         tried: set[tuple[int, int, int, int]] = set()
         checks = 0
@@ -320,27 +427,56 @@ class VNS_Solver:
             tried.add(key)
             checks += 1
 
-            candidate = self.double_bridge_move(tour, a, b, c, d)
-            candidate_distance = self.tour_distance(candidate, self.distance_matrix)
-            if candidate_distance < current_distance:
-                return candidate, True, candidate_distance
+            prev_a = core[a - 1]
+            head_s2 = core[a]
+            tail_s2 = core[b - 1]
+            head_s3 = core[b]
+            tail_s3 = core[c - 1]
+            head_s4 = core[c]
+
+            removed = (
+                edge_cost(prev_a, head_s2)
+                + edge_cost(tail_s2, head_s3)
+                + edge_cost(tail_s3, head_s4)
+            )
+            added = (
+                edge_cost(prev_a, head_s3)
+                + edge_cost(tail_s3, head_s2)
+                + edge_cost(tail_s2, head_s4)
+            )
+
+            delta = added - removed
+            if delta < 0:
+                new_distance = current_distance + delta
+                candidate = self.double_bridge_move(tour, a, b, c, d)
+                return candidate, True, new_distance
         return tour, False, current_distance
 
     def shaking(self, tour, k):
         new_tour = tour.copy()
-        for _ in range(k):
+        if k==1:
             i, j = sorted(random.sample(range(1, len(tour) - 1), 2))
             new_tour = self.two_opt(new_tour, i, j)
-        if k >= 2:
+        if k == 2:
             new_tour = self.random_double_bridge(new_tour)
+        if k == 3:
+            is_closed = new_tour[0] == new_tour[-1]
+            length = len(new_tour) - 1 if is_closed else len(new_tour)
+            if length > 3:
+                i = random.randrange(1, length)
+                j = random.randrange(1, length + 1)
+                # Avoid no-op or immediate reinsertion positions.
+                while j == i or j == i + 1:
+                    j = random.randrange(1, length + 1)
+                new_tour = self.one_insertion(new_tour, i, j)
         return new_tour
 
     def vns_solve(
         self,
-        start: int = 0,
         iteration_max: int = 500,
         k_max: int = 2,
         max_non_improving_iterations: int = 10,
+        start: int | None = None,
     ):
         """
         Solve the TSP using Variable Neighborhood Search (VNS) and log the process.
@@ -350,6 +486,8 @@ class VNS_Solver:
         :return: (tour, total_distance, total_exploration_time, total_exploitation_time)
         """
         method_key = self.method.lower() if isinstance(self.method, str) else "random"
+        self.best_known_hit_iteration = None
+
         if method_key in {"greedy", "nearest_neighbour", "nearest_neighbor", "nrnbr"}:
             seed = start if start is not None else random.randint(0, self.n_cities - 1)
             tour = nearest_neighbour_tour(self.graph, start=seed)
@@ -357,12 +495,14 @@ class VNS_Solver:
             self.logger.info(
                 f"Initial {method_key} tour: {tour.tolist()}, distance: {total_distance:.2f}"
             )
+            self._record_best_known_hit(float(total_distance), 0)
         elif method_key in {"q_learning", "qlearning", "q-learn"}:
             tour, full_distance_matrix = q_learning_tour(self.graph, start=start)
             total_distance = self.tour_distance(tour, full_distance_matrix)
             self.logger.info(
                 f"Initial q_learning tour: {tour.tolist()}, distance: {total_distance:.2f}"
             )
+            self._record_best_known_hit(float(total_distance), 0)
         elif method_key == "random":
             tour = np.arange(self.n_cities)
             np.random.shuffle(tour)
@@ -372,23 +512,28 @@ class VNS_Solver:
             self.logger.info(
                 f"Initial random tour: {tour.tolist()}, distance: {total_distance:.2f}"
             )
+            self._record_best_known_hit(float(total_distance), 0)
         else:
             raise ValueError(
                 f"Unknown initialisation method '{self.method}'. "
                 "Supported values: 'greedy', 'nearest_neighbour', 'random', 'q_learning'."
             )
 
+
         total_distance = float(total_distance)
+        self.initial_solution = total_distance
         total_exploration_time = 0
         total_exploitation_time = 0
         iteration = 1
+        last_completed_iteration = 0
         iteration_limit = max(1, int(iteration_max)) if iteration_max is not None else 1
         max_neighbourhood = max(1, int(k_max))
         consecutive_non_improving_iterations = 0
-        max_non_improving_iterations = max_non_improving_iterations
+        non_improve_limit = max(1, int(max_non_improving_iterations))
+        best_known_reached = self.best_known_hit_iteration is not None
 
         try:
-            while iteration <= iteration_limit:
+            while iteration <= iteration_limit and not best_known_reached:
                 self.logger.info("=== Iteration %d ===", iteration)
                 k = 1
                 improved_in_iteration = False
@@ -396,11 +541,11 @@ class VNS_Solver:
                 while k <= max_neighbourhood:
                     self.logger.info("Iteration %d - neighbourhood k=%d", iteration, k)
                     time_start = time.time()
-                    k_tour = self.shaking(tour, k)
+                    tour_from_shaking = self.shaking(tour, k)
                     time_end = time.time()
                     exploration_time = time_end - time_start
                     total_exploration_time += exploration_time
-                    shaken_distance = self.tour_distance(k_tour, self.distance_matrix)
+                    shaken_distance = self.tour_distance(tour_from_shaking, self.distance_matrix)
                     self.logger.info(
                         "Shaking phase completed in %.4f seconds (distance %.2f)",
                         exploration_time,
@@ -408,7 +553,7 @@ class VNS_Solver:
                     )
 
                     time_start = time.time()
-                    new_tour, new_distance = self.local_search(k_tour, shaken_distance)
+                    new_tour, new_distance = self.local_search(tour_from_shaking, shaken_distance)
                     time_end = time.time()
                     exploitation_time = time_end - time_start
                     total_exploitation_time += exploitation_time
@@ -430,8 +575,15 @@ class VNS_Solver:
                         )
                         tour = new_tour
                         total_distance = new_distance
+                        self._record_best_known_hit(float(total_distance), iteration)
                         improved_in_iteration = True
+                        if self.best_known_hit_iteration is not None:
+                            best_known_reached = True
+                            last_completed_iteration = iteration
+                            break
+                            print("******** reached best known ********")
                         k = 1
+                        continue
                     else:
                         self.logger.info(
                             "No improvement at k=%d. Moving to the next neighbourhood.", k
@@ -446,23 +598,29 @@ class VNS_Solver:
                         "No improvement in iteration %d (%d/%d without improvement).",
                         iteration,
                         consecutive_non_improving_iterations,
-                        max_non_improving_iterations,
+                        non_improve_limit,
                     )
                     if (
                         consecutive_non_improving_iterations
-                        >= max_non_improving_iterations
+                        >= non_improve_limit
                     ):
                         self.logger.info(
                             "Terminating search after %d consecutive non-improving iterations.",
                             consecutive_non_improving_iterations,
                         )
+                        last_completed_iteration = iteration
                         break
 
+                if best_known_reached:
+                    break
+
+                last_completed_iteration = iteration
                 iteration += 1
 
             if not self.constraint.is_valid_tour(tour):
                 self.logger.warning("Solution does not satisfy TSP constraints.")
             total_distance = self.tour_distance(tour, self.distance_matrix)
+            self._record_best_known_hit(float(total_distance), last_completed_iteration)
             self.logger.info(
                 f"Final tour: {tour.tolist()}, total distance: {total_distance:.2f}"
             )
