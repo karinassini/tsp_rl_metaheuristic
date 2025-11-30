@@ -1,44 +1,58 @@
-# Metaheuristic - TSP
+# Metaheuristic TSP Toolkit
 
-Implementations that combine reinforcement learning-inspired heuristics with classic metaheuristics to tackle the Traveling Salesman Problem (TSP). The toolbox ships with ready-to-run greedy, exact, and Variable Neighborhood Search (VNS) solvers plus utilities for analysing solutions.
+Metaheuristics and reinforcement learning for the Traveling Salesman Problem. The toolbox provides greedy baselines, an exact solver, Variable Neighborhood Search (VNS), and analysis utilities ready to run on TSPLIB instances.
 
-## Key Features
-- **Graph loader**: Parse TSPLIB coordinate and distance-matrix files into a unified `Graph` structure (`src/structures/graph.py`).
-- **Solver suite**: Run greedy baselines, a VNS metaheuristic, or an exact Gurobi model (`src/solver/*`).
-- **Constraint checks**: Validate candidate tours with reusable constraints (`src/constraints/tsp_constraint.py`).
-- **Result tracking**: Persist JSON summaries, logs, and comparison plots directly under `outputs/`.
-- **Benchmark ready**: Sample TSPLIB instances live inside `instances/tsplib/` with hooks for adding new datasets.
+## Contents
+- [Highlights](#highlights)
+- [Repository Structure](#repository-structure)
+- [Quick Start](#quick-start)
+- [Working with TSPLIB](#working-with-tsplib)
+- [Running Experiments](#running-experiments)
+- [Analysis Utilities](#analysis-utilities)
+- [Extending the Project](#extending-the-project)
+- [Local Search Operators](#local-search-operators)
+- [Q-Learning Primer](#q-learning-primer)
+- [Logging Tips](#logging-tips)
+- [Benchmark Instances](#benchmark-instances)
+- [Contributing](#contributing)
+- [License](#license)
 
-## Project Layout
+## Highlights
+- **Unified graph loader** converts TSPLIB coordinates or explicit matrices into the `Graph` abstraction (`src/structures/graph.py`).
+- **Solver suite** includes greedy heuristics, VNS, and an optional Gurobi-based exact model (`src/solver/`).
+- **Constraints** ensure feasible tours via `TSPConstraint`.
+- **Experiment tracking** stores JSON metrics, plots, and logs under `outputs/`.
+- **Plotting helpers** compare objective trends and time-to-target curves.
+
+## Repository Structure
 ```text
-├── instances/          # Benchmark TSP instances (TSPLIB format)
-├── outputs/            # Solver artefacts (plots, JSON solutions, logs)
+├── instances/          # TSPLIB benchmark data
+├── outputs/            # Logs, JSON summaries, plots
 ├── src/
-│   ├── constraints/    # Feasibility checks for tours
-│   ├── solver/         # Greedy, exact (Gurobi), and VNS implementations
-│   ├── structures/     # Graph abstraction and parsers
-│   └── utils/          # Plotting helpers for solution comparisons
-├── main.py             # Example entry point wiring graph + solvers
-├── pyproject.toml      # Poetry configuration and dependencies
+│   ├── constraints/    # Feasibility checks
+│   ├── solver/         # Greedy, exact, VNS, RL integrations
+│   ├── structures/     # Graph loaders and utilities
+│   └── utils/          # Plotting and reporting helpers
+├── main.py             # Example experiment runner
+├── pyproject.toml      # Dependencies via Poetry
 └── README.md
 ```
 
-## Getting Started
-
+## Quick Start
 ### Prerequisites
 - Python 3.8–3.11
-- [Poetry](https://python-poetry.org/) ≥ 1.5 (project developed with 2.1.3)
-- (Optional) [Gurobi](https://www.gurobi.com/) license if you intend to run the exact solver (installs via `gurobipy`).
+- [Poetry](https://python-poetry.org/) ≥ 1.5 (developed with 2.1.3)
+- Optional: [Gurobi](https://www.gurobi.com/) license when using the exact solver
 
-### Environment Setup
+### Installation
 ```bash
 git clone https://github.com/yourusername/tsp_rl_metaheuristic.git
 cd tsp_rl_metaheuristic
 poetry install
-poetry shell  # or `poetry run <command>` for one-off execution
+poetry shell
 ```
 
-If you prefer `venv`, replace the `poetry` commands with your virtual environment workflow and install dependencies using `pip install -r requirements.txt` generated via `poetry export`.
+Prefer `venv`? Export dependencies via `poetry export --format requirements.txt` and install with `pip install -r requirements.txt`.
 
 ### Pre-commit Hooks
 ```bash
@@ -46,22 +60,15 @@ pip install pre-commit
 pre-commit install
 pre-commit run --all-files
 ```
-Hooks enforce formatting (Black) and linting rules defined in `.pre-commit-config.yaml` before every commit.
 
-## Reading from TSPLIB
+## Working with TSPLIB
+`Graph.from_tsplib(path)` reads any TSPLIB `.tsp` file and reconstructs a distance matrix. The parser:
+- scans headers for dimension, weight type, and format;
+- dispatches to the correct section reader (`EDGE_WEIGHT_SECTION`, `NODE_COORD_SECTION`, etc.);
+- rebuilds explicit matrices from formats such as `FULL_MATRIX`, `UPPER_DIAG_ROW`, or `LOWER_ROW`;
+- derives Euclidean distances for coordinate-based problems (`EUC_2D`, `CEIL_2D`).
 
-The loader `Graph.from_tsplib(...)` accepts any TSPLIB-formatted `.tsp` file and reconstructs the full distance matrix required by the solvers. The parser follows the TSPLIB specification step by step:
-
-- **Header scan** – Iterate through the file collecting metadata such as `DIMENSION`, `EDGE_WEIGHT_TYPE`, and `EDGE_WEIGHT_FORMAT`. These flags describe how distances are provided (explicit matrix versus coordinates) and how many nodes to expect.
-- **Section dispatch** – When the parser encounters markers like `EDGE_WEIGHT_SECTION` or `NODE_COORD_SECTION`, it switches into the appropriate reader. While the weights/coordinates may be split across multiple physical lines, they form a single continuous sequence that the loader reassembles.
-- **Explicit matrices** – For `EDGE_WEIGHT_TYPE: EXPLICIT`, the reader converts the flattened list of weights into a symmetric matrix. Formats such as `FULL_MATRIX`, `UPPER_DIAG_ROW`, `LOWER_ROW`, etc., control whether the file lists every entry or only the upper/lower triangle. The loader validates the expected number of values and mirrors whatever portion is provided to recover the complete matrix.
-- **Coordinate-based problems** – When the file supplies coordinates (`EUC_2D`, `CEIL_2D`), the parser computes pairwise Euclidean distances, rounding or ceiling as mandated by the TSPLIB naming. The result is again a dense matrix with distance from each node *i* to *j*.
-- **Graph construction** – With the matrix in hand, the loader builds the `Graph` object storing: the ordered node list, an edge dictionary `(i, j) → distance`, and a 2D adjacency matrix. All solvers consume this unified structure regardless of the original TSPLIB format.
-
-Because TSPLIB allows long sequences of numbers to wrap across lines, the parser relies on counting rather than line breaks. For instance, an `UPPER_DIAG_ROW` matrix for a 175-node instance provides `175 + 174 + … + 1 = 15,400` numbers in total; the loader simply streams them in order and slices the sequence according to the format definition.
-
-Example usage:
-
+Example:
 ```python
 from src.structures.graph import Graph
 
@@ -69,67 +76,127 @@ graph = Graph.from_tsplib("instances/tsplib/si175.tsp")
 distance_matrix = graph.get_distance_matrix()
 ```
 
-This call automatically interprets the header, unpacks the explicit upper-triangular weights, mirrors them to the lower triangle, and returns a ready-to-use graph.
+## Running Experiments
+1. **Pick an instance**: add `.tsp` files under `instances/tsplib/`.
+2. **Configure `main.py`**: choose solver (`test_greedy_solver`, `test_exact`, `test_vns_solver`), tweak parameters, and set output paths.
+3. **Execute**:
+   ```bash
+   poetry run python main.py
+   ```
 
-## Running Solvers
-
-### 1. Select an Instance
-Drop additional TSPLIB-formatted problems under `instances/tsplib/`. The project includes `dj38.tsp`, `dj38_simplified.tsp`, and `swiss42.tsp` as examples.
-
-### 2. Launch from `main.py`
-Edit the `instance`, solver choice, and parameters in `main.py`, then run:
-```bash
-poetry run python main.py
-```
-The example script demonstrates how to:
-- Load a graph from TSPLIB files.
-- Switch between greedy, exact, and VNS solvers (`test_greedy_solver`, `test_exact`, `test_vns_solver`).
-- Persist solutions through `SolutionSaver`, including optional plots.
-
-### 3. Analyse Results
-- JSON outputs and logs appear under `outputs/solutions/<instance>/<solver>/`.
-- Use `SolutionComparisonPlotter` (`src/utils/plot_comparison_from_json.py`) to compare experiments:
+## Analysis Utilities
+- `SolutionSaver` records JSON histories, objective plots, and time-to-target curves.
+- `src/utils/plot_comparison_from_json.py` overlays results across experiments:
   ```bash
-  poetry run python -c "from src.utils.plot_comparison_from_json import SolutionComparisonPlotter as P; P('outputs/solutions/swiss42/vns').run()"
+  poetry run python -c "from src.utils.plot_comparison_from_json import SolutionComparisonPlotter as Plot; Plot('outputs/solutions/swiss42/vns').run()"
   ```
-- Graph visualisations can be generated via `Graph.visualize(...)` when running experiments.
+- `Graph.visualize()` renders route diagrams for quick inspection.
 
-## Adding New Solvers or Experiments
-- Implement a solver in `src/solver/` and expose an entry function.
-- Register experiment helpers inside `main.py` or create a dedicated driver script under `src/`.
-- Reuse `TSPConstraint` to ensure feasibility and `SolutionSaver` to keep artefacts consistent.
-
-## Benchmarks and selected instances 
-The repository currently focuses on TSPLIB data. You can extend `Graph.from_tsplib_math` or add new loaders for problem variants. References:
-- [Math TSP Data](https://www.math.uwaterloo.ca/tsp/data/index.html)
-- [TSPLIB95](http://comopt.ifi.uni-heidelberg.de/software/TSPLIB95/tsp/)
-
-Selected instances according with TSPLIB
-
-
-swiss42
-gr48
-berlin52
-prl76 -> pr226
-gr120
-ch150
-si175
-a280
-pcb442
-
-## Contributing
-Issues, bug fixes, and feature contributions are welcome. Please include relevant tests (`pytest`) and ensure formatting checks pass before submitting a pull request.
-
-## License
-Distributed under the MIT License. See the [LICENSE](LICENSE) file for details.
+## Extending the Project
+- Implement new heuristics in `src/solver/` and wire them into `main.py` or a custom driver.
+- Share constraint logic via `TSPConstraint` to guarantee valid tours.
+- Store artefacts with `SolutionSaver` for consistency across experiments.
 
 ## Local Search Operators
+The VNS pipeline embeds a Variable Neighborhood Descent loop cycling through complementary neighbourhoods:
+- **2-opt first improvement** flips non-adjacent edges and restarts on every improvement.
+- **1-insertion first improvement** removes a vertex at position `i` and reinserts it before `j`.
+- **2-exchange first improvement** swaps two interior vertices while keeping the depot fixed.
+- **Double-bridge first improvement** reconnects four segments in the order `1-3-2-4` to escape plateaus.
 
-The VNS pipeline embeds a Variable Neighborhood Descent (VND) stage that alternates between complementary neighbourhoods:
-- **2-opt first improvement** scans non-adjacent edge pairs and returns as soon as a swap shortens the tour. After every improving swap the evaluation restarts from the first pair, quickly reaching a 2-opt local optimum.
-- **1-insertion first improvement** removes a node from position *i* and reinserts it before position *j*, exploring insertion neighbourhoods cited in interchange heuristics. The move skips the depot/start city and stops at the first improvement.
-- **2-exchange first improvement** swaps two internal vertices (classic interchange move) while keeping the start node fixed. It explores permutations that 2-opt and 1-insertion cannot reach and exits on the first improvement.
-- **Double-bridge first improvement** enumerates four cut points, reconnecting the tour segments in the order 1–3–2–4. This larger jump helps escape plateaus left by the previous neighbourhoods; the operator stops at the first improving reconnection.
+Each improvement resets the sequence so finer-grained moves finish before broader perturbations.
 
-Whenever any operator finds a better route, the VND loop restarts with 2-opt, guaranteeing that fine-grained improvements are exhausted before escalating to broader neighbourhood kicks.
+## Q-Learning Primer
+The RL-assisted initialisation builds a reward matrix from the distance matrix and trains a Q-table using the Bellman update:
+```python
+q_table[current, action] = (1 - cfg.alpha) * q_table[current, action] \
+    + cfg.alpha * (reward + cfg.gamma * max_future)
+current = next_state
+```
 
+Where:
+- `cfg.alpha` – learning rate;
+- `cfg.gamma` – discount factor for future rewards;
+- `reward` – immediate payoff for the chosen edge;
+- `max_future` – best Q-value available from the next state.
+
+The agent follows an epsilon-greedy policy, decays `epsilon` toward `epsilon_min`, and explicitly reinforces the closing edge to complete the tour.
+
+Equivalent mathematical form:
+
+\[
+Q(s, a) \leftarrow (1 - \alpha) Q(s, a) + \alpha \Big[r + \gamma \max_{a'} Q(s', a')\Big]
+\]
+
+or, expressed as the incremental update:
+
+\[
+Q(s, a) \leftarrow Q(s, a) + \alpha \Big[r + \gamma \max_{a'} Q(s', a') - Q(s, a)\Big]
+\]
+
+Parameter meanings:
+
+| Symbol | Code reference | Description |
+| --- | --- | --- |
+| \(Q(s, a)\) | `q_table[current, action]` | Expected cumulative reward for taking action `a` in state `s`. |
+| \(\alpha\) | `cfg.alpha` | Learning rate controlling how strongly new information overwrites old values. |
+| \(r\) | `reward` | Immediate payoff after executing the action. |
+| \(\gamma\) | `cfg.gamma` | Discount factor weighting future rewards. |
+| \(\max_{a'} Q(s', a')\) | `max_future` | Best available Q-value from the successor state. |
+| \(s'\) | `next_state` | State reached after applying the action. |
+| \(s\) | `current` | State before the action. |
+
+## Logging Tips
+Logging is cheap in Python but file I/O dominates once messages hit disk. To measure the impact:
+- time representative solver sections with `time.perf_counter()`;
+- rerun with `logging.WARNING` or without the handler;
+- compare elapsed times to decide whether to batch or down-sample log entries.
+
+## Benchmark Instances
+Bundled TSPLIB problems:
+- swiss42
+- gr48
+- berlin52
+- prl76 (redirected to pr226)
+- gr120
+- ch150
+- si175
+- a280
+- pcb442
+
+Refer to [TSPLIB95]( http://comopt.ifi.uni-heidelberg.de/software/TSPLIB95/) and [Math TSP Data](https://www.math.uwaterloo.ca/tsp/data/index.html) for additional instances.
+
+## Contributing
+Please open issues or pull requests with accompanying tests (`pytest`) and formatting checks. Run `pre-commit run --all-files` before submitting.
+
+## License
+Licensed under the MIT License. See [LICENSE](LICENSE).
+
+## Recommended Parameters
+- Validated across TSPLIB instances from swiss42 through ch150.
+
+```python
+class QLearningConfig:
+  alpha: float = 0.4
+  gamma: float = 0.8
+  epsilon: float = 0.4
+  epsilon_min: float = 0.05
+  epsilon_decay: float = 0.995
+  episodes: int = 3000
+  cache_dir: Optional[Path] = None
+
+
+class VNSMainConfig:
+  instances: List[str] = field(default_factory=lambda: ["swiss42.tsp"])
+  method: str = "nearest_neighbour"  # Options: "random", "q_learning", "nearest_neighbour"
+  iteration_max: Optional[int] = 200
+  max_non_improving_iterations: int = 15
+  repeats: int = 30
+  start_city: int = 0
+  k_max: int = 2
+  save_dir: Optional[str] = None
+```
+
+Match both configurations during experiments to preserve exploration versus exploitation timing.
+
+### Q-learning initial solution

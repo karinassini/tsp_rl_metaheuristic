@@ -1,5 +1,6 @@
 import sys
 import os
+from itertools import product
 
 from src.structures.graph import Graph
 from src.solver.greedy_solver import TSPSolver
@@ -22,6 +23,14 @@ if root not in sys.path:
 SUMMARY_TRACKER = VNSSummaryTracker()
 
 
+def _ensure_iterable(value):
+    if value is None:
+        return [None]
+    if isinstance(value, (list, tuple, set)):
+        return list(value)
+    return [value]
+
+
 def test_vns_solver(
     graph,
     instance,
@@ -30,9 +39,10 @@ def test_vns_solver(
     max_non_improving_iterations=20,
     iteration_max=None,
     k_max=2,
-    start_city=0,
     current_timestamp=None,
     should_plot: bool = True,
+    start_city: int | None = None,
+    local_search: str = 'VNS_Solver_Q_Learnings',
 ):
     """Run a single VNS experiment and persist metrics/plots.
 
@@ -41,36 +51,58 @@ def test_vns_solver(
     optionally renders the objective trend and time-to-target plots when
     `should_plot` is True and the best reference is available.
     """
+
+    if local_search == 'VNS_Solver_Q_Learnings':
+         local_searcher = VNS_Solver_Q_Learnings
+    else:
+        local_searcher = VNS_Solver
+
     name_without_extension = instance.split(".")[0]
     save_dir = (
         save_dir
         if save_dir
-        else f"outputs/solutions/{name_without_extension}/vns/{method}/{current_timestamp}/"
+        else f"outputs/solutions/{name_without_extension}/{local_searcher.__name__}/{method}/{current_timestamp}/"
     )
     if iteration_max is None:
         iteration_max = 500 if graph.n_nodes <= 50 else 1000
-    solver = VNS_Solver(graph, save_dir, method=method)
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    saver = SolutionSaver(instance_name=name_without_extension, save_dir=save_dir)
+    
+    solver = local_searcher(
+        graph,
+        save_dir,
+        method=method,
+        best_known_distance=saver.best_total_distance,
+        timestamp=timestamp
+    )
     solver_name = type(solver).__name__
+    
     tour, total_distance, exploration_time, exploitation_time = solver.vns_solve(
         start=start_city,
         iteration_max=iteration_max,
         k_max=k_max,
         max_non_improving_iterations=max_non_improving_iterations,
     )
+
     print("VNS Tour:", tour)
     print("VNS Total distance:", total_distance)
     print("VNS Exploration time:", exploration_time)
     print("VNS Exploitation time:", exploitation_time)
 
-    saver = SolutionSaver(instance_name=name_without_extension, save_dir=save_dir)
     saver.save(
         tour,
         total_distance,
+        timestamp=timestamp,
         exploration_time=exploration_time,
         exploitation_time=exploitation_time,
         iteration_max=iteration_max,
         method=method,
         solver=solver_name,
+        iteration_first_reach=solver.best_known_hit_iteration,
+        start_city_initialization=start_city,
+        initial_solution=solver.initial_solution,
     )  # saves as JSON
     # saver.plot_solution_graph(tour, graph.get_distance_matrix(), filename=f"outputs/solutions/{name_without_extension}/vns/solution_graph.png")
 
@@ -85,6 +117,8 @@ def test_vns_solver(
         route=tour,
         save_dir=save_dir,
         best_known=saver.best_total_distance,
+        iteration_first_reach=solver.best_known_hit_iteration,
+        start_city_initialization=start_city,
     )
     if should_plot:
         try:
@@ -101,7 +135,7 @@ def test_vns_solver(
                 iteration_max=iteration_max,
                 save_dir=save_dir,
                 solver_name=solver_name,
-                store_key=method,
+                store_key=f"{method}|start_{'null' if start_city is None else start_city}",
             )
         except ValueError as exc:
             print(f"Skipping time-to-target plot: {exc}")
@@ -122,14 +156,21 @@ def plot_solution_comparison(directory):
 def main():
     """Entry point used for quick local experiments with the available solvers."""
     config = VNSMainConfig()
-
+    tsplib_root = os.path.join(root, "instances", "tsplib")
+    graph_cache: dict[str, Graph] = {}
     for instance in config.instances:
-        print(f"Processing instance: {instance}")
-        graph = Graph.from_tsplib(f"{root}/instances/tsplib/{instance}")
+        graph_path = os.path.join(tsplib_root, instance)
+        graph = Graph.from_tsplib(graph_path)
+        print(f"Loaded instance {instance}: nodes={graph.nodes}, edges={len(graph.edges)}")
+        graph_cache[instance] = graph
 
-        print("Nodes:", graph.nodes)
-        print("Number of edges:", len(graph.edges))
-
+    for instance, method, local_search in product(
+        config.instances,
+        config.method,
+        config.local_search,
+    ):
+        graph = graph_cache[instance]
+        print(f"Processing instance={instance}, method={method}, local_search={local_search}")
         current_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         for run_idx in range(config.repeats):
             is_last_run = run_idx == config.repeats - 1
@@ -138,12 +179,13 @@ def main():
                 instance,
                 save_dir=config.save_dir,
                 iteration_max=config.iteration_max,
-                method=config.method,
+                method=method,
                 current_timestamp=current_timestamp,
                 max_non_improving_iterations=config.max_non_improving_iterations,
                 k_max=config.k_max,
                 start_city=config.start_city,
                 should_plot=is_last_run,
+                local_search=local_search,
             )
 
     # print(f"outputs/solutions/{instance.split('.')[0]}/")
