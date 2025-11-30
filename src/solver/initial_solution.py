@@ -22,13 +22,16 @@ from src.structures.graph import Graph
 
 @dataclass
 class QLearningConfig:
-    alpha: float = 0.4
+    alpha: float = 0.3
     gamma: float = 0.8
-    epsilon: float = 0.4
-    epsilon_min: float = 0.05
-    epsilon_decay: float = 0.995
-    episodes: int = 3000
+    epsilon: float = 0.6
+    epsilon_min: float = 0.1
+    epsilon_decay: float = 0.998
+    epsilon_reset_interval: Optional[int] = 500  # episodes between epsilon resets
+    epsilon_reset_value: Optional[float] = 0.35  # fallback value; defaults to initial epsilon
+    episodes: int = 2000
     cache_dir: Optional[Path] = None
+    monitor_interval: Optional[int] = None  # episodes between Q-table delta logs
 
 
 def _reward_matrix(distance_matrix: np.ndarray) -> np.ndarray:
@@ -38,8 +41,23 @@ def _reward_matrix(distance_matrix: np.ndarray) -> np.ndarray:
         rewards = np.divide(
             mean_dist[:, None], distance_matrix, where=distance_matrix > 0
         )
+
+    # Replace invalid entries before scaling.
     rewards[np.isinf(rewards)] = 0.0
     rewards[np.isnan(rewards)] = 0.0
+
+    # Clamp extreme ratios (close cities lead to huge rewards).
+    finite_values = rewards[np.isfinite(rewards)]
+    if finite_values.size:
+        upper_clip = np.percentile(finite_values, 99)
+        rewards = np.clip(rewards, 0.0, upper_clip)
+
+    # Log-scale to compress the dynamic range and normalise to [0, 1].
+    rewards = np.log1p(rewards)
+    max_val = rewards.max()
+    if max_val > 0:
+        rewards = rewards / max_val
+
     return rewards
 
 
@@ -52,8 +70,39 @@ def _epsilon_greedy_action(
         raise ValueError("No available actions to choose from.")
     if random.random() < epsilon:
         return random.choice(available_actions)
+    # best action = argmax_a Q(s,a)
     best_action = max(available_actions, key=lambda action: q_values[action])
     return best_action
+
+
+def _deterministic_tour_cost(
+    q_table: np.ndarray,
+    distance_matrix: np.ndarray,
+    *,
+    start_city: int = 0,
+) -> Tuple[float, List[int]]:
+    """Roll out the greedy policy encoded in ``q_table`` and return its cost."""
+
+    n = q_table.shape[0]
+    if n == 0:
+        return 0.0, []
+    start = start_city % n
+    current = start
+    unvisited = set(range(n))
+    unvisited.remove(current)
+    tour = [current]
+
+    while unvisited:
+        next_city = max(unvisited, key=lambda city: q_table[current, city])
+        tour.append(next_city)
+        unvisited.remove(next_city)
+        current = next_city
+
+    tour.append(start)
+    total = 0.0
+    for u, v in zip(tour, tour[1:]):
+        total += float(distance_matrix[u, v])
+    return total, tour
 
 
 def _q_learning(
@@ -63,9 +112,23 @@ def _q_learning(
     n = distance_matrix.shape[0]
     rewards = _reward_matrix(distance_matrix)
     q_table = np.zeros_like(distance_matrix)
+    # Q-Table: For environments with a finite number of states and actions, Q-values are often stored in a
+    # table called the Q-table. Each cell in the table corresponds to a state-action pair \((s,a)\) and stores
+    # its associated Q-value.
 
     epsilon = cfg.epsilon
-    for _ in range(cfg.episodes):
+    previous_snapshot: Optional[np.ndarray] = None
+    monitor_interval = cfg.monitor_interval if cfg.monitor_interval and cfg.monitor_interval > 0 else None
+    best_monitored_cost = float("inf")
+    best_q_snapshot: Optional[np.ndarray] = None
+    reset_interval = (
+        cfg.epsilon_reset_interval
+        if cfg.epsilon_reset_interval and cfg.epsilon_reset_interval > 0
+        else None
+    )
+    reset_value = cfg.epsilon_reset_value if cfg.epsilon_reset_value is not None else cfg.epsilon
+
+    for episode in range(cfg.episodes): # how many episodes
         start = random.randrange(n)
         current = start
         unvisited = set(range(n))
@@ -73,7 +136,7 @@ def _q_learning(
         while unvisited:
             actions = list(unvisited)
             action = _epsilon_greedy_action(q_table[current], actions, epsilon)
-            reward = rewards[current, action]
+            reward = rewards[current, action] # next city to visit
             unvisited.remove(action)
             next_state = action
             max_future = (
@@ -82,6 +145,9 @@ def _q_learning(
             q_table[current, action] = (1 - cfg.alpha) * q_table[
                 current, action
             ] + cfg.alpha * (reward + cfg.gamma * max_future)
+
+            # Q(s, a) ← Q(s, a) + α [R + γ max(Q(s', a')) - Q(s, a)]
+
             current = next_state
 
         # close the tour by returning to start
@@ -92,6 +158,48 @@ def _q_learning(
 
         epsilon = max(cfg.epsilon_min, epsilon * cfg.epsilon_decay)
 
+        if reset_interval and (episode + 1) % reset_interval == 0:
+            # Periodic reset keeps exploration alive once epsilon reaches epsilon_min.
+            epsilon = max(cfg.epsilon_min, reset_value)
+            print(
+                "Episode {ep}: epsilon reset to {val:.4f} after decay plateau".format(
+                    ep=episode + 1,
+                    val=epsilon,
+                )
+            )
+
+        if monitor_interval and (episode + 1) % monitor_interval == 0:
+            current_snapshot = q_table.copy()
+            if previous_snapshot is None:
+                delta_fro = float("inf")
+                delta_max = float("inf")
+            else:
+                diff = current_snapshot - previous_snapshot
+                delta_fro = float(np.linalg.norm(diff))
+                delta_max = float(np.max(np.abs(diff)))
+            greedy_cost, tour = _deterministic_tour_cost(
+                current_snapshot,
+                distance_matrix,
+            )
+            is_best = " (new best)" if greedy_cost < best_monitored_cost else ""
+            if greedy_cost < best_monitored_cost:
+                best_monitored_cost = greedy_cost
+                best_q_snapshot = current_snapshot.copy()
+            print(
+                "Episode {ep}: Q-table Δ_fro={df:.6f}, Δ_max={dm:.6f}, T {tour} "
+                "greedy_cost={gc:.2f}{flag}".format(
+                    ep=episode + 1,
+                    df=delta_fro,
+                    dm=delta_max,
+                    tour=tour,
+                    gc=greedy_cost,
+                    flag=is_best,
+                )
+            )
+            previous_snapshot = current_snapshot
+
+    if best_q_snapshot is not None:
+        return best_q_snapshot
     return q_table
 
 
