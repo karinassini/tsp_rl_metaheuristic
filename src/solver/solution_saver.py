@@ -1,5 +1,4 @@
 import csv
-import datetime
 import json
 import os
 from collections import defaultdict
@@ -20,24 +19,30 @@ class SolutionSaver:
         self.save_dir = save_dir
         self.instance_name = instance_name
 
+        self.best_total_distance: Optional[float] = None
         if os.path.exists("./src/solver/best_known.json"):
-            with open("./src/solver/best_known.json", "r") as f:
+            with open("./src/solver/best_known.json", "r", encoding="utf-8") as f:
                 best_data = json.load(f)
-            self.best_total_distance = best_data.get(self.instance_name, None)
-            self.best_total_distance = self.best_total_distance["value"]
-        else:
-            self.best_total_distance = None
+            entry = best_data.get(self.instance_name)
+            if isinstance(entry, dict):
+                self.best_total_distance = float(entry.get("value")) if entry.get("value") is not None else None
+            elif isinstance(entry, list) and entry:
+                first = entry[0]
+                if isinstance(first, dict) and first.get("value") is not None:
+                    self.best_total_distance = float(first.get("value"))
         os.makedirs(self.save_dir, exist_ok=True)
 
-    def save(self, route, total_distance, **params):
+    def save(self, route, total_distance, timestamp, **params):
+        params_payload = dict(params) if params else {}
+        iteration_first_reach = params_payload.pop("iteration_first_reach", None)
         data = {
             "route": route,
             "total_distance": total_distance,
             "best_total_distance": self.best_total_distance,
-            "params": params if params else None,
+            "params": params_payload if params_payload else None,
+            "iteration_first_reach": iteration_first_reach,
         }
 
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         file_path = f"{self.save_dir}/{timestamp}_solution.json"
         with open(file_path, "w") as f:
             json.dump(data, f, indent=4)
@@ -186,6 +191,16 @@ class VNSSummaryTracker:
         distances = [entry["total_distance"] for entry in history]
         exploration_times = [entry["exploration_time"] for entry in history]
         exploitation_times = [entry["exploitation_time"] for entry in history]
+        iteration_hits = [
+            entry["iteration_first_reach"]
+            for entry in history
+            if entry.get("iteration_first_reach") is not None
+        ]
+        start_city_values = [
+            entry.get("start_city_initialization") for entry in history
+            if "start_city_initialization" in entry
+        ]
+        last_start_city = start_city_values[-1] if start_city_values else None
 
         mean_total = mean(distances)
         std_total = stdev(distances) if len(distances) > 1 else 0.0
@@ -218,6 +233,9 @@ class VNSSummaryTracker:
             "best_total_distance": best_total,
             "mean_distance_to_best": mean_distance_to_best,
             "mean_distance_to_best_pct": mean_distance_to_best_pct,
+            "mean_iteration_first_reach": mean(iteration_hits)
+            if iteration_hits
+            else None,
             "mean_distance_to_optimal": mean_distance_to_optimal,
             "mean_distance_to_optimal_pct": mean_distance_to_optimal_pct,
             "best_known_total_distance": best_known,
@@ -227,6 +245,7 @@ class VNSSummaryTracker:
             "best_exploitation_time": best_run["exploitation_time"],
             "mean_exploration_time": mean(exploration_times),
             "mean_exploitation_time": mean(exploitation_times),
+            "start_city_initialization": last_start_city,
         }
 
     def _write_summary_csv(
@@ -240,11 +259,13 @@ class VNSSummaryTracker:
             "method",
             "runs",
             "iteration_max",
+            "start_city_initialization",
             "mean_total_distance",
             "std_total_distance",
             "best_total_distance",
             "mean_distance_to_best",
             "mean_distance_to_best_pct",
+            "mean_iteration_first_reach",
             "best_known_total_distance",
             "best_known_hits",
             "mean_distance_to_optimal",
@@ -264,6 +285,10 @@ class VNSSummaryTracker:
         for summary in self._summary_cache[save_dir].values():
             row = summary.copy()
             row["best_route"] = self._format_route(row["best_route"])
+            start_city_value = row.get("start_city_initialization")
+            row["start_city_initialization"] = (
+                "" if start_city_value is None else str(start_city_value)
+            )
             for key in (
                 "mean_total_distance",
                 "std_total_distance",
@@ -282,6 +307,14 @@ class VNSSummaryTracker:
                     row[key] = ""
                 elif isinstance(row[key], float):
                     row[key] = f"{row[key]:.4f}"
+            if row.get("mean_iteration_first_reach") is None:
+                row["mean_iteration_first_reach"] = ""
+            else:
+                row["mean_iteration_first_reach"] = (
+                    f"{row['mean_iteration_first_reach']:.4f}"
+                    if isinstance(row["mean_iteration_first_reach"], float)
+                    else str(row["mean_iteration_first_reach"])
+                )
             rows.append(row)
 
         with open(csv_path, "w", newline="") as csv_file:
@@ -302,6 +335,8 @@ class VNSSummaryTracker:
         route: List[int],
         save_dir: str,
         best_known: Optional[float],
+        iteration_first_reach: Optional[int] = None,
+        start_city_initialization: Optional[int] = None,
     ) -> Dict[str, Any]:
         key = (instance_name, method, iteration_max, solver_name)
         self._history[key].append(
@@ -310,6 +345,8 @@ class VNSSummaryTracker:
                 "exploration_time": exploration_time,
                 "exploitation_time": exploitation_time,
                 "route": route,
+                "iteration_first_reach": iteration_first_reach,
+                "start_city_initialization": start_city_initialization,
             }
         )
 
