@@ -278,6 +278,71 @@ def q_learning_tour(
     return np.asarray(tour, dtype=int), distance_matrix
 
 
+def rcl_nearest_neighbour_tour(
+    graph: Graph,
+    *,
+    start: int | None = None,
+    rcl_size: int = 3,
+    distance_threshold: float | None = None,
+    alpha: float | None = None,
+) -> np.ndarray:
+    nodes = list(graph.nodes)
+    if not nodes:
+        raise ValueError("Graph has no nodes.")
+    distance_matrix = np.asarray(graph.get_distance_matrix())
+    start_city = start if start is not None else random.choice(nodes)
+    if start_city not in nodes:
+        raise ValueError("Provided start city is not part of the graph.")
+
+    unvisited = set(nodes)
+    unvisited.remove(start_city)
+    tour = [start_city]
+    current = start_city
+
+    while unvisited:
+        candidates = []
+        best_cost = float("inf")
+        worst_cost = float("-inf")
+        for city in unvisited:
+            cost = distance_matrix[current][city]
+            if not np.isfinite(cost):
+                continue
+            best_cost = min(best_cost, cost)
+            worst_cost = max(worst_cost, cost)
+            candidates.append((city, cost))
+
+        if not candidates:
+            # Fall back to any unvisited city when all distances are invalid.
+            next_city = random.choice(tuple(unvisited))
+            tour.append(next_city)
+            unvisited.remove(next_city)
+            current = next_city
+            continue
+
+        # keep either a fixed number of closest cities or all cities whose
+        # cost is within a factor of the best (if threshold is provided)
+        candidates.sort(key=lambda pair: pair[1])
+        if distance_threshold is not None:
+            rcl = [city for city, cost in candidates if cost <= best_cost * distance_threshold]
+        elif alpha is not None:
+            bounded_alpha = max(0.0, min(1.0, alpha))
+            cutoff = best_cost + bounded_alpha * (worst_cost - best_cost)
+            rcl = [city for city, cost in candidates if cost <= cutoff]
+        else:
+            rcl = [city for city, _ in candidates[: max(1, min(rcl_size, len(candidates)))]]
+
+            rcl = [city for city, _ in candidates[: max(1, min(rcl_size, len(candidates)))]]
+            # Ensure we always have at least one candidate to choose from.
+            rcl = [candidates[0][0]]
+
+        next_city = random.choice(rcl)
+        tour.append(next_city)
+        unvisited.remove(next_city)
+        current = next_city
+
+    tour.append(start_city)
+    return np.asarray(tour, dtype=int)
+
 def nearest_neighbour_tour(graph: Graph, start: Optional[int] = None) -> np.ndarray:
     """Construct a TSP tour using the Nearest Neighbour heuristic.
 
