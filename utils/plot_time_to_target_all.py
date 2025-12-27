@@ -53,6 +53,9 @@ def _iter_json_files(
 
 def _compose_label(base_label: str, counters: Dict[str, int]) -> str:
     label = base_label or "series"
+    if base_label:
+        return label
+
     count = counters.get(label, 0)
     counters[label] = count + 1
     return label if count == 0 else f"{label}-{count}"
@@ -68,6 +71,14 @@ def _match_start_filter(path: Path, filters: set[str] | None) -> bool:
     return suffix in filters or start_part in filters
 
 
+def _extract_start_label(path: Path) -> str:
+    start_part = next((part for part in path.parts if part.startswith("start_")), None)
+    if not start_part:
+        return "all"
+    suffix = start_part.split("start_", 1)[-1]
+    return suffix or "all"
+
+
 def plot_time_to_target_collection(
     json_sources: Iterable[Path | str],
     *,
@@ -76,6 +87,7 @@ def plot_time_to_target_collection(
     instance_filters: set[str] | None = None,
     method_filters: set[str] | None = None,
     solver_filters: set[str] | None = None,
+    group_by_method: bool = False,
 ) -> None:
     sources = [Path(src) for src in json_sources]
     if not sources:
@@ -87,9 +99,9 @@ def plot_time_to_target_collection(
         destination = first_source if first_source.is_dir() else first_source.parent
     destination.mkdir(parents=True, exist_ok=True)
 
-    per_solver_instance: Dict[tuple[str, str], list[Dict[str, object]]] = defaultdict(list)
+    per_group_series: Dict[tuple[str, str, str], list[Dict[str, object]]] = defaultdict(list)
     label_counters: Dict[str, int] = {}
-    color_cycle = cycle([
+    palette_colors = [
         "#1f77b4",
         "#d62728",
         "#2ca02c",
@@ -100,13 +112,13 @@ def plot_time_to_target_collection(
         "#7f7f7f",
         "#bcbd22",
         "#17becf",
-    ])
-    label_colors: Dict[str, str] = {}
+    ]
 
     for json_path in _iter_json_files(sources, start_filters=start_filters):
         with json_path.open("r", encoding="utf-8") as fp:
             payload = json.load(fp)
 
+        start_label = _extract_start_label(json_path)
         for key, series_map in payload.items():
             instance, method, iteration_max, solver = _parse_key(key)
             if instance_filters and instance not in instance_filters:
@@ -119,13 +131,17 @@ def plot_time_to_target_collection(
             for series_name, series in series_map.items():
                 times = np.asarray(series.get("times", []), dtype=float)
                 probabilities = np.asarray(series.get("probabilities", []), dtype=float)
-                style = dict(series.get("style", {}))
-                base_label = style.get("label") or series_name or default_label
+                incoming_style = dict(series.get("style", {}))
+                base_label = incoming_style.get("label") or series_name or default_label
                 label = _compose_label(base_label, label_counters)
+                custom_color = incoming_style.get("color")
+                if custom_color in {"", "forestgreen"}:
+                    custom_color = None
+                style = {k: v for k, v in incoming_style.items() if k != "color"}
                 style["label"] = label
-                style["color"] = label_colors.setdefault(label, next(color_cycle))
 
-                per_solver_instance[(solver, instance)].append(
+                key = (instance, method, start_label) if group_by_method else (solver, instance, start_label)
+                per_group_series[key].append(
                     {
                         "times": times,
                         "probabilities": probabilities,
@@ -133,16 +149,26 @@ def plot_time_to_target_collection(
                         "success_count": int(series.get("success_count", len(times))),
                         "failures": int(series.get("failures", 0)),
                         "mean_time": series.get("mean_time"),
+                        "method": method,
+                        "solver": solver,
+                        "custom_color": custom_color,
                         "style": style,
                     }
                 )
 
-    for (solver_name, instance_name), series_list in per_solver_instance.items():
+    for group_key, series_list in per_group_series.items():
         if not series_list:
             continue
 
         fig, ax = plt.subplots(figsize=(7, 4.5))
         min_time: float | None = None
+        color_cycle = cycle(palette_colors)
+        color_map: Dict[str, str] = {}
+
+        if group_by_method:
+            instance_name, method_name, start_label = group_key
+        else:
+            solver_name, instance_name, start_label = group_key
 
         for idx, series in enumerate(series_list):
             raw_times = np.asarray(series.get("times", []), dtype=float)
@@ -160,10 +186,19 @@ def plot_time_to_target_collection(
             probabilities = (np.arange(1, count + 1) - 0.5) / total_runs
             times = times[:count]
             style = series.get("style") or {}
-            color = style.get("color", "forestgreen")
+            series_method = series.get("method") or "method"
+            series_solver = series.get("solver") or "solver"
+            custom_color = series.get("custom_color")
+            if custom_color:
+                color = custom_color
+            else:
+                color_key = series_solver if group_by_method else series_method
+                if color_key not in color_map:
+                    color_map[color_key] = next(color_cycle)
+                color = color_map[color_key]
             linewidth = style.get("linewidth", 2)
             marker = style.get("marker", "x")
-            label = style.get("label")
+            label = style.get("label") or series_method
 
             first_time = float(times[0])
             min_time = first_time if min_time is None else min(min_time, first_time)
@@ -171,8 +206,10 @@ def plot_time_to_target_collection(
             smooth_times, smooth_prob = _smooth_curve(times, probabilities)
             mean_time = series.get("mean_time")
             legend_label = label
+            if group_by_method:
+                legend_label = f"{series_solver} - {legend_label}" if legend_label else series_solver
             if mean_time is not None:
-                legend_label = f"{label} (μ={mean_time:.2f}s)"
+                legend_label = f"{legend_label} (μ={mean_time:.2f}s)" if legend_label else f"μ={mean_time:.2f}s"
             ax.plot(smooth_times, smooth_prob, color=color, linewidth=linewidth, label=legend_label)
             if marker:
                 ax.scatter(times, probabilities, color=color, marker=marker)
@@ -192,20 +229,25 @@ def plot_time_to_target_collection(
         if min_time is not None:
             ax.set_xlim(left=min_time)
 
-        ax.set_title(f"Time to Target - {instance_name} ({solver_name})")
+        title_suffix = "start null" if start_label == "null" else f"start {start_label}" if start_label != "all" else "all starts"
+        if group_by_method:
+            ax.set_title(f"Time to Target - {instance_name} (method {method_name}, {title_suffix})")
+        else:
+            ax.set_title(f"Time to Target - {instance_name} ({solver_name}, {title_suffix})")
         ax.set_xlabel("Time to target (s)")
         ax.set_ylabel("Cumulative probability")
         ax.set_ylim(0, 1)
         ax.grid(True, linestyle=":", linewidth=0.5)
         ax.legend(loc="lower right")
 
-        if start_filters:
-            suffix = "_".join(sorted(start_filters))
+        suffix = start_label if start_filters and len(start_filters) == 1 else start_label
+        if group_by_method:
+            instance_dir = destination / "method_compare" / method_name / instance_name / f"start_{suffix}"
+            out_path = instance_dir / f"time_to_target_{instance_name}_{method_name}_start_{suffix}.png"
         else:
-            suffix = "all"
-        instance_dir = destination / solver_name / instance_name
+            instance_dir = destination / solver_name / instance_name / f"start_{suffix}"
+            out_path = instance_dir / f"time_to_target_{instance_name}_{solver_name}_start_{suffix}.png"
         instance_dir.mkdir(parents=True, exist_ok=True)
-        out_path = instance_dir / f"time_to_target_{instance_name}_{solver_name}_start_{suffix}.png"
         fig.savefig(out_path, bbox_inches="tight")
         plt.close(fig)
 
@@ -245,6 +287,12 @@ def main() -> None:
         default=None,
         help="Restrict plotting to solver types (values stored in JSON keys, e.g. --solver VNS_Solver)",
     )
+    parser.add_argument(
+        "--group-by-method",
+        action="store_true",
+        dest="group_by_method",
+        help="Plot one chart per method comparing every solver present",
+    )
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parents[1]
@@ -279,6 +327,7 @@ def main() -> None:
         instance_filters=instance_filters,
         method_filters=method_filters,
         solver_filters=solver_filters,
+        group_by_method=args.group_by_method,
     )
 
 
