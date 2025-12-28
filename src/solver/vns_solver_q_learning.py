@@ -4,7 +4,12 @@ import time
 import numpy as np
 
 from src.structures.graph import Graph
-from src.solver.initial_solution import nearest_neighbour_tour, q_learning_tour
+from src.solver.initial_solution import (
+    QLearningConfig,
+    nearest_neighbour_tour,
+    q_learning_tour,
+    rcl_nearest_neighbour_tour,
+)
 from src.solver.vns_solver import VNS_Solver
 
 
@@ -19,13 +24,20 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
         graph: Graph,
         save_dir: str = None,
         method="random",
-        max_double_bridge_checks: int = 250,
-        rl_alpha: float = 0.4,
-        rl_gamma: float = 0.6,
-        rl_epsilon: float = 0.7,
+        max_double_bridge_checks: int = 100,
+        restricted_two_opt_max_span: int = 8,
+        max_flip_subsequence_length: int = 5,
+        max_inversion_segment_length: int = 5,
+        rl_alpha: float = 0.3,
+        rl_gamma: float = 0.5,
+        rl_epsilon: float = 0.5,
         rl_epsilon_min: float = 0.05,
-        rl_epsilon_decay: float = 0.995,
-        max_local_search_iterations: int | None = None,
+        rl_epsilon_decay: float = 0.98,
+        max_local_search_iterations: int | None = 80, 
+        negative_reward_scale: float = 1.5,
+        operator_failure_limit: int = 10, 
+        q_learning_cfg: QLearningConfig | None = None,
+        rl_local_search_cfg: object | None = None,
         best_known_distance: float | None = None,
         timestamp: str | None = None,
     ):
@@ -39,6 +51,10 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
             save_dir=save_dir,
             method=method,
             max_double_bridge_checks=max_double_bridge_checks,
+            restricted_two_opt_max_span=restricted_two_opt_max_span,
+            max_flip_subsequence_length=max_flip_subsequence_length,
+            max_inversion_segment_length=max_inversion_segment_length,
+            q_learning_cfg=q_learning_cfg,
             best_known_distance=best_known_distance,
             timestamp=timestamp,
         )
@@ -48,8 +64,53 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
         self.rl_epsilon_min = rl_epsilon_min
         self.rl_epsilon_decay = rl_epsilon_decay
         self.max_local_search_iterations = max_local_search_iterations
+        self.negative_reward_scale = max(1.0, negative_reward_scale)
+        self.operator_failure_limit = max(1, operator_failure_limit)
+        self.rl_local_search_cfg = rl_local_search_cfg
+
+        if rl_local_search_cfg is not None:
+            def _value(name, default):
+                if hasattr(rl_local_search_cfg, name):
+                    return getattr(rl_local_search_cfg, name)
+                if isinstance(rl_local_search_cfg, dict) and name in rl_local_search_cfg:
+                    return rl_local_search_cfg[name]
+                return default
+
+            self.rl_alpha = _value("rl_alpha", self.rl_alpha)
+            self.rl_gamma = _value("rl_gamma", self.rl_gamma)
+            self.rl_epsilon = _value("rl_epsilon", self.rl_epsilon)
+            self.rl_epsilon_min = _value("rl_epsilon_min", self.rl_epsilon_min)
+            self.rl_epsilon_decay = _value("rl_epsilon_decay", self.rl_epsilon_decay)
+            self.max_local_search_iterations = _value(
+                "max_local_search_iterations",
+                self.max_local_search_iterations,
+            )
+            self.negative_reward_scale = max(
+                1.0,
+                _value("negative_reward_scale", self.negative_reward_scale),
+            )
+            self.operator_failure_limit = max(
+                1,
+                int(_value("operator_failure_limit", self.operator_failure_limit)),
+            )
         self._rl_q_table: np.ndarray | None = None
         self._rl_operator_index: dict[str, int] | None = None
+
+    def export_parameters(self) -> dict[str, object]:
+        params = super().export_parameters()
+        params.update(
+            {
+                "rl_alpha": self.rl_alpha,
+                "rl_gamma": self.rl_gamma,
+                "rl_epsilon": self.rl_epsilon,
+                "rl_epsilon_min": self.rl_epsilon_min,
+                "rl_epsilon_decay": self.rl_epsilon_decay,
+                "max_local_search_iterations": self.max_local_search_iterations,
+                "negative_reward_scale": self.negative_reward_scale,
+                "operator_failure_limit": self.operator_failure_limit,
+            }
+        )
+        return params
 
     def _initialize_rl_table(self, operator_names: list[str]) -> None:
         if (
@@ -65,9 +126,9 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
         elif self._rl_q_table is None or self._rl_q_table.shape[0] != len(operator_names):
             size = len(operator_names)
             self._rl_q_table = np.zeros((size, size), dtype=float)
-        self.logger.info(
-            "Initialized RL Q-table with operators: %s", self._rl_q_table
-        )
+        # self.logger.info(
+        #     "Initialized RL Q-table with operators: %s", self._rl_q_table
+        # )
 
     def _select_search(self, state_idx: int | None, available: list[int]) -> int:
         if not available:
@@ -92,7 +153,7 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
             reward + self.rl_gamma * future_max
         )
         self._rl_q_table[state_idx, action_idx] = updated
-
+ 
     @staticmethod
     def _positive_reward(previous_best: float, candidate_distance: float) -> float:
         if not np.isfinite(previous_best):
@@ -102,14 +163,14 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
             return 0.0
         return delta / max(previous_best, 1e-9)
 
-    @staticmethod
-    def _negative_reward(previous_best: float, candidate_distance: float) -> float:
+    def _negative_reward(self, previous_best: float, candidate_distance: float) -> float:
         if not np.isfinite(previous_best):
-            return -0.01
+            return -0.01 * self.negative_reward_scale
         delta = candidate_distance - previous_best
         if delta <= 0:
-            return -0.01
-        return -delta / max(previous_best, 1e-9)
+            return -0.01 * self.negative_reward_scale
+        penalty = delta / max(previous_best, 1e-9)
+        return -self.negative_reward_scale * penalty
 
     def _decay_epsilon(self) -> None:
         if self.rl_epsilon > self.rl_epsilon_min:
@@ -124,6 +185,8 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
         if operators is None:
             operators = [
                 self._two_opt_first_improvement,
+                self._restricted_two_opt_first_improvement,
+                self._limited_subsequence_flip_first_improvement,
                 self._one_insertion_first_improvement,
                 self._two_exchange_first_improvement,
                 self._double_bridge_first_improvement,
@@ -135,7 +198,16 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
         # Initialize RL Q-table if needed -> the RL table depends on the available operators
         self._initialize_rl_table(operator_names)
 
-        available = set(range(len(named_ops)))
+        # If consecutive failures exceed limit, ban operator for remainder of local search
+        failure_streaks = [0 for _ in named_ops]
+        banned_ops: set[int] = set()
+
+        def _fresh_available() -> set[int]:
+            return {idx for idx in range(len(named_ops)) if idx not in banned_ops}
+
+        available = _fresh_available()
+        self.logger.info("Available operators: %s", [named_ops[idx][0] for idx in sorted(available)])
+
         if not available:
             return tour.copy(), current_distance
 
@@ -147,36 +219,51 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
         tolerance = 1e-9
 
         state_name, state_fn = named_ops[state_idx]
-        self.logger.info(
-            "RL local search initial operator: %s (ε=%.3f)",
-            state_name,
-            self.rl_epsilon,
-        )
+
         candidate, improved, candidate_distance = state_fn(best_tour, best_distance)
         if improved and candidate_distance + tolerance < best_distance:
             best_tour = candidate
             best_distance = candidate_distance
+            failure_streaks[state_idx] = 0
             self.logger.info(
                 "Operator %s improved distance to %.2f",
                 state_name,
                 best_distance,
             )
+        else:
+            failure_streaks[state_idx] += 1
+            if failure_streaks[state_idx] >= self.operator_failure_limit:
+                banned_ops.add(state_idx)
+                self.logger.info(
+                    "Operator %s banned for remainder of local search after %d initial failures",
+                    state_name,
+                    failure_streaks[state_idx],
+                )
 
         max_iterations = (
             self.max_local_search_iterations
             if self.max_local_search_iterations is not None
-            else len(named_ops) * 5
+            else  len(named_ops) * max(5, self.n_cities // 10)
         )
+
+        self.logger.info(
+            "RL local search initial operator: %s (ε=%.3f) with max iterations %d",
+            state_name,
+            self.rl_epsilon,
+            max_iterations,
+        )
+
 
         iteration = 0
         while available and iteration < max_iterations:
             action_idx = self._select_search(state_idx, list(available))
             action_name, action_fn = named_ops[action_idx]
+            previous_name = named_ops[state_idx][0]
             self.logger.info(
-                "RL iteration %d applying %s (ε=%.3f)",
+                "RL iteration %d (ε=%.3f)",
                 iteration,
-                action_name,
                 self.rl_epsilon,
+
             )
             candidate, improved, candidate_distance = action_fn(
                 best_tour, best_distance
@@ -188,7 +275,8 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
                 best_tour = candidate
                 best_distance = candidate_distance
                 state_idx = action_idx
-                available = set(range(len(named_ops)))
+                failure_streaks[action_idx] = 0
+                available = _fresh_available()
                 available.discard(state_idx)
                 self.logger.info(
                     "Improvement with %s -> distance %.2f (reward %.4f)",
@@ -200,6 +288,16 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
                 penalty = self._negative_reward(best_distance, candidate_distance)
                 self._update_q_value(state_idx, action_idx, penalty)
                 available.discard(action_idx)
+                failure_streaks[action_idx] += 1
+                if failure_streaks[action_idx] >= self.operator_failure_limit:
+                    banned_ops.add(action_idx)
+                    available.discard(action_idx)
+                    self.logger.info(
+                        "Operator %s banned for remainder of local search after %d failures",
+                        action_name,
+                        failure_streaks[action_idx],
+                    )
+                # to avoid hammering the same neighbourhood repeatedly within one local-search sweep
                 self.logger.info(
                     "No improvement with %s (penalty %.4f). Remaining: %s",
                     action_name,
@@ -261,6 +359,13 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
                 "Initial random tour: %s, distance: %.2f",
                 tour.tolist(),
                 total_distance,
+            )
+            self._record_best_known_hit(float(total_distance), 0)
+        elif method_key == "rcl":
+            tour = rcl_nearest_neighbour_tour(self.graph, start=start, alpha=0.3)
+            total_distance = self.tour_distance(tour, self.distance_matrix)
+            self.logger.info(
+                f"Initial RCL tour: {tour.tolist()}, distance: {total_distance:.2f}"
             )
             self._record_best_known_hit(float(total_distance), 0)
         else:
@@ -374,6 +479,7 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
             total_distance = float(total_distance)
             total_exploration_time = float(total_exploration_time)
             total_exploitation_time = float(total_exploitation_time)
+            self.iterations_executed = int(last_completed_iteration)
             return (
                 tour.tolist(),
                 total_distance,

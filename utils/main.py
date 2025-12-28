@@ -38,6 +38,7 @@ def main() -> None:
 	concatenate_solution_csvs(solutions_root=solutions_root, output_csv=output_csv)
 	#_run_plots(["null", "0"])
 	_run_plots(["null", "0"], group_by_method=True)
+	_run_plots(["null", "0"], group_by_method=False)
 
 
 if __name__ == "__main__":
