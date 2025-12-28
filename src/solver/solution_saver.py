@@ -35,15 +35,17 @@ class SolutionSaver:
     def save(self, route, total_distance, timestamp, **params):
         params_payload = dict(params) if params else {}
         iteration_first_reach = params_payload.pop("iteration_first_reach", None)
+        solver_params = params_payload.pop("solver_params", None)
         data = {
             "route": route,
             "total_distance": total_distance,
             "best_total_distance": self.best_total_distance,
+            "solver_params": solver_params,
             "params": params_payload if params_payload else None,
             "iteration_first_reach": iteration_first_reach,
         }
 
-        file_path = f"{self.save_dir}/{timestamp}_solution.json"
+        file_path = f"{self.save_dir}/{timestamp}_solution_{os.getpid()}_{id(self)}.json"
         with open(file_path, "w") as f:
             json.dump(data, f, indent=4)
         print(f"Solution saved to {file_path}")
@@ -204,6 +206,7 @@ class VNSSummaryTracker:
 
         mean_total = mean(distances)
         std_total = stdev(distances) if len(distances) > 1 else 0.0
+        max_total = max(distances)
 
         best_run = min(history, key=lambda entry: entry["total_distance"])
         best_total = best_run["total_distance"]
@@ -230,6 +233,7 @@ class VNSSummaryTracker:
         return {
             "mean_total_distance": mean_total,
             "std_total_distance": std_total,
+            "max_total_distance": max_total,
             "best_total_distance": best_total,
             "mean_distance_to_best": mean_distance_to_best,
             "mean_distance_to_best_pct": mean_distance_to_best_pct,
@@ -262,6 +266,7 @@ class VNSSummaryTracker:
             "start_city_initialization",
             "mean_total_distance",
             "std_total_distance",
+            "max_total_distance",
             "best_total_distance",
             "mean_distance_to_best",
             "mean_distance_to_best_pct",
@@ -293,6 +298,7 @@ class VNSSummaryTracker:
                 "mean_total_distance",
                 "std_total_distance",
                 "best_total_distance",
+                "max_total_distance",
                 "mean_distance_to_best",
                 "mean_distance_to_best_pct",
                 "best_known_total_distance",
@@ -418,6 +424,24 @@ class VNSSummaryTracker:
         plot_path = os.path.join(save_dir, filename)
         plt.savefig(plot_path, bbox_inches="tight")
         plt.close()
+
+        trend_payload = {
+            "instance": instance_name,
+            "method": method,
+            "solver": solver_name,
+            "iteration_max": iteration_max,
+            "normalize": normalize,
+            "best_known": float(best_known) if best_known is not None else None,
+            "runs": runs,
+            "values": [float(v) for v in values],
+            "running_std": [float(v) for v in running_std],
+            "distances": [float(d) for d in distances],
+        }
+        json_filename = os.path.splitext(filename)[0] + ".json"
+        json_path = os.path.join(save_dir, json_filename)
+        with open(json_path, "w", encoding="utf-8") as fp:
+            json.dump(trend_payload, fp, indent=2)
+
         return plot_path
 
     def plot_time_to_target(
@@ -447,12 +471,21 @@ class VNSSummaryTracker:
 
         history = self._history[key]
         total_runs = len(history)
+        best_known_slack: Optional[float] = None
         successful_times = sorted(
             entry["exploration_time"] + entry["exploitation_time"]
             for entry in history
             if abs(entry["total_distance"] - best_known) <= tolerance
         )
         failures = total_runs - len(successful_times)
+        if total_runs > 0 and failures > total_runs / 2:
+            best_known_slack = max(entry["total_distance"] for entry in history)
+            successful_times = sorted(
+                entry["exploration_time"] + entry["exploitation_time"]
+                for entry in history
+                if entry["total_distance"] <= best_known_slack + tolerance
+            )
+            failures = total_runs - len(successful_times)
 
         plt.figure(figsize=(6, 4))
         plot_style = {
@@ -526,6 +559,7 @@ class VNSSummaryTracker:
                     "success_count": success_count,
                     "failures": failures,
                     "style": plot_style,
+                    "best_known_slack": best_known_slack,
                 }
                 self._persist_cdf_series(save_dir)
         else:
@@ -549,6 +583,7 @@ class VNSSummaryTracker:
                     "success_count": 0,
                     "failures": failures,
                     "style": plot_style,
+                    "best_known_slack": best_known_slack,
                 }
                 self._persist_cdf_series(save_dir)
 

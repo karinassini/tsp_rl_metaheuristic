@@ -43,6 +43,8 @@ def test_vns_solver(
     should_plot: bool = True,
     start_city: int | None = None,
     local_search: str = 'VNS_Solver_Q_Learnings',
+    q_learning_cfg=None,
+    rl_local_search_cfg=None,
 ):
     """Run a single VNS experiment and persist metrics/plots.
 
@@ -70,14 +72,20 @@ def test_vns_solver(
 
     saver = SolutionSaver(instance_name=name_without_extension, save_dir=save_dir)
     
-    solver = local_searcher(
-        graph,
-        save_dir,
-        method=method,
-        best_known_distance=saver.best_total_distance,
-        timestamp=timestamp
-    )
+    solver_kwargs = {
+        "graph": graph,
+        "save_dir": save_dir,
+        "method": method,
+        "q_learning_cfg": q_learning_cfg,
+        "best_known_distance": saver.best_total_distance,
+        "timestamp": timestamp,
+    }
+    if local_searcher is VNS_Solver_Q_Learnings and rl_local_search_cfg is not None:
+        solver_kwargs["rl_local_search_cfg"] = rl_local_search_cfg
+
+    solver = local_searcher(**solver_kwargs)
     solver_name = type(solver).__name__
+    solver_params = solver.export_parameters()
     
     tour, total_distance, exploration_time, exploitation_time = solver.vns_solve(
         start=start_city,
@@ -104,6 +112,7 @@ def test_vns_solver(
         iterations_executed=solver.iterations_executed,
         start_city_initialization=start_city,
         initial_solution=solver.initial_solution,
+        solver_params=solver_params,
     )  # saves as JSON
     # saver.plot_solution_graph(tour, graph.get_distance_matrix(), filename=f"outputs/solutions/{name_without_extension}/vns/solution_graph.png")
 
@@ -187,6 +196,8 @@ def main():
                 start_city=config.start_city,
                 should_plot=is_last_run,
                 local_search=local_search,
+                q_learning_cfg=config.q_learning_cfg,
+                rl_local_search_cfg=config.rl_local_search_cfg,
             )
 
     # print(f"outputs/solutions/{instance.split('.')[0]}/")

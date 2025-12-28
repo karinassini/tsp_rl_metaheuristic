@@ -11,27 +11,10 @@ from __future__ import annotations
 
 import json
 import random
-from dataclasses import dataclass
-from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
-
 import numpy as np
-
+from config import QLearningConfig
 from src.structures.graph import Graph
-
-
-@dataclass
-class QLearningConfig:
-    alpha: float = 0.3
-    gamma: float = 0.8
-    epsilon: float = 0.6
-    epsilon_min: float = 0.1
-    epsilon_decay: float = 0.998
-    epsilon_reset_interval: Optional[int] = 500  # episodes between epsilon resets
-    epsilon_reset_value: Optional[float] = 0.35  # fallback value; defaults to initial epsilon
-    episodes: int = 2000
-    cache_dir: Optional[Path] = None
-    monitor_interval: Optional[int] = None  # episodes between Q-table delta logs
 
 
 def _reward_matrix(distance_matrix: np.ndarray) -> np.ndarray:
