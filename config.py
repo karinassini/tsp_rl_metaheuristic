@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from pathlib import Path
 
 
@@ -33,7 +33,7 @@ class RLLocalSearchConfig:
 class VNSMainConfig:
 	"""Top-level configuration for running VNS experiments via ``main.py``."""
 
-	instances: List[str] = field(default_factory=lambda: ["swiss42.tsp"]) # swiss42.tsp, berlin52.tsp, gr48.tsp, ch150.tsp, gr120.tsp, si175.tsp, pr226.tsp, a280.tsp, pr226.tsp
+	instances: List[str] = field(default_factory=lambda: ["gr48.tsp", "ch150.tsp"]) # swiss42.tsp, berlin52.tsp, gr48.tsp, ch150.tsp, gr120.tsp, si175.tsp, pr226.tsp, a280.tsp, pr226.tsp
 	method: List[str] = field(default_factory=lambda: ["rcl", "q_learning", "nearest_neighbor" ]) # q_learning, random , nearest_neighbor
 	start_city: int | None = None
 	iteration_max: Optional[int] = 500
@@ -44,3 +44,39 @@ class VNSMainConfig:
 	local_search: List[str] = field(default_factory=lambda: ["VNS_Solver_Q_Learnings", "VNS_Solver"])  # Options: "VNS_Solver", "VNS_Solver_Q_Learnings"
 	q_learning_cfg: QLearningConfig = field(default_factory=QLearningConfig)
 	rl_local_search_cfg: RLLocalSearchConfig = field(default_factory=RLLocalSearchConfig)
+
+
+@dataclass
+class GAMainConfig:
+	"""Configuration for running the Genetic Algorithm experiments."""
+
+	instances: List[str] = field(default_factory=lambda: ["swiss42.tsp"])
+	repeats: int = 1
+	save_dir: Optional[str] = None
+	log_root: str = "outputs/logs/ga"
+	ga_config_kwargs: Dict[str, Any] = field(
+		default_factory=lambda: {
+			"population_size": 120,
+			"max_generations": 400,
+			"mutation_rate": 0.03,
+			"crossover_rate": 0.9,
+			"tournament_size": 3,
+			"elitism": True,
+			"seed": None,
+			"stagnation_limit": None,
+			"selection_method": "roulette",
+			"rank_selection_pressure": 1.7,
+			"truncation_ratio": 0.3,
+			"initialization_method": "marl",
+			"marl_iterations": 2000,
+			"marl_agents": 10,
+			"marl_epsilon_mix": 0.5,
+			"marl_epsilon": 0.15,
+			"marl_softmax_beta": 2.0,
+			"marl_learning_rate": 0.4,
+			"marl_discount": 0.6,
+			"marl_candidate_ratio": 1.2,
+			"marl_two_opt_passes": 2,
+			"log_dir": None,
+		}
+	)

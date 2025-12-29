@@ -36,6 +36,8 @@ class SolutionSaver:
         params_payload = dict(params) if params else {}
         iteration_first_reach = params_payload.pop("iteration_first_reach", None)
         solver_params = params_payload.pop("solver_params", None)
+        init_mean = params_payload.pop("initial_population_mean_distance", None)
+        init_std = params_payload.pop("initial_population_std_distance", None)
         data = {
             "route": route,
             "total_distance": total_distance,
@@ -43,6 +45,8 @@ class SolutionSaver:
             "solver_params": solver_params,
             "params": params_payload if params_payload else None,
             "iteration_first_reach": iteration_first_reach,
+            "initial_population_mean_distance": init_mean,
+            "initial_population_std_distance": init_std,
         }
 
         file_path = f"{self.save_dir}/{timestamp}_solution_{os.getpid()}_{id(self)}.json"

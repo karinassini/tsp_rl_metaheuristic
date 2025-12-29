@@ -186,6 +186,17 @@ class QLearningConfig:
   cache_dir: Optional[Path] = None
 
 
+class RLLocalSearchConfig:
+  rl_alpha: float = 0.3
+  rl_gamma: float = 0.5
+  rl_epsilon: float = 0.5
+  rl_epsilon_min: float = 0.05
+  rl_epsilon_decay: float = 0.98
+  max_local_search_iterations: Optional[int] = 80
+  negative_reward_scale: float = 1.5
+  operator_failure_limit: int = 10
+
+
 class VNSMainConfig:
   instances: List[str] = field(default_factory=lambda: ["swiss42.tsp"])
   method: str = "nearest_neighbour"  # Options: "random", "q_learning", "nearest_neighbour"
@@ -195,6 +206,8 @@ class VNSMainConfig:
   start_city: int = 0
   k_max: int = 2
   save_dir: Optional[str] = None
+  q_learning_cfg: QLearningConfig = field(default_factory=QLearningConfig)
+  rl_local_search_cfg: RLLocalSearchConfig = field(default_factory=RLLocalSearchConfig)
 ```
 
 Match both configurations during experiments to preserve exploration versus exploitation timing.
