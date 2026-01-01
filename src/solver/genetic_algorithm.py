@@ -50,6 +50,7 @@ class GeneticAlgorithmConfig:
     marl_reward: float = 1.0
     marl_candidate_ratio: float = 1.5  # how many MARL tours relative to population size
     marl_two_opt_passes: int = 1
+    marl_top_k: Optional[int] = 5
     log_dir: Optional[str] = None
 
 
@@ -240,7 +241,7 @@ class GeneticTSPSolver:
         state: int,
         available: Sequence[int]
         ) -> List[int]:
-        limit = self._marl_candidate_list_limit()
+        limit = self.config.marl_top_k
         candidates = list(available)
         if not candidates:
             return []
@@ -307,6 +308,7 @@ class GeneticTSPSolver:
         while unvisited:
             current = tour[-1]
             candidate_actions = self._distance_ranked_actions(current, unvisited)
+            
             # Next action will take in consideration ranked distance candidates
             action = self._marl_select_action(current, list(candidate_actions), q_table)
             tour.append(action)
@@ -314,12 +316,33 @@ class GeneticTSPSolver:
 
         return np.asarray(tour, dtype=int)
 
+    def _marl_candidate_actions(
+        self,
+        state: int,
+        available: Sequence[int],
+        q_table: np.ndarray,
+    ) -> List[int]:
+        candidates = list(available)
+        limit = self._marl_candidate_list_limit()
+        if limit is None or limit <= 0 or len(candidates) <= limit:
+            return candidates
+        weights = self._marl_softmax(state, candidates, q_table)
+        ranked = sorted(
+            zip(candidates, weights),
+            key=lambda item: item[1],
+            reverse=True,
+        )
+        return [idx for idx, _weight in ranked[:limit]]
+
     def _marl_select_action(self, state: int, available: List[int], q_table: np.ndarray) -> int:
         if not available:
             return state
 
+        candidate_actions = self._marl_candidate_actions(state, available, q_table)
+
         if self.random.random() < self.config.marl_epsilon:
-            return max(available, key=lambda idx: q_table[state, idx])
+            return candidate_actions[0]
+            #return random.choice(candidate_actions)
 
         weights = self._marl_softmax([q_table[state, idx] for idx in available])
         threshold = self.random.random()
