@@ -344,36 +344,108 @@ class GeneticTSPSolver:
             return candidate_actions[0]
             #return random.choice(candidate_actions)
 
-        weights = self._marl_softmax([q_table[state, idx] for idx in available])
+        weights = self._marl_softmax(state, candidate_actions, q_table)
         threshold = self.random.random()
         cumulative = 0.0
-        for idx, weight in zip(available, weights):
+        for idx, weight in zip(candidate_actions, weights):
             cumulative += weight
             if cumulative >= threshold:
                 return idx
-        return available[-1]
+        return candidate_actions[-1]
 
-    def _marl_softmax(self, values: List[float]) -> List[float]:
+    def _marl_softmax(self, state: int, available: List[int], q_table: np.ndarray) -> List[float]:
         beta = max(0.1, self.config.marl_softmax_beta)
-        shifted = np.asarray(values, dtype=float)
-        shifted = shifted - float(np.max(shifted))
-        exp_values = np.exp(beta * shifted)
+        q_values = np.asarray([q_table[state, idx] for idx in available], dtype=float)
+        inverse_distances = np.asarray(
+            [1.0 / max(self._distance(state, idx), 1e-9) for idx in available],
+            dtype=float,
+        )
+        energy = q_values * np.power(inverse_distances, beta)
+        energy -= float(np.max(energy))
+        exp_values = np.exp(energy)
         total = float(np.sum(exp_values))
         if total <= 0:
-            return [1.0 / len(values)] * len(values)
+            return [1.0 / len(available)] * len(available)
         return (exp_values / total).tolist()
+
 
     def _marl_update_q_table(self, q_table: np.ndarray, tour: np.ndarray, tour_distance: float) -> None:
         #reward = 1.0 / max(tour_distance, 1e-9) # the paper implements something fixed
-        reward = 1
+        reward = self.config.marl_reward
         lr = self.config.marl_learning_rate
-        gamma = self.config.marl_discount
         cycle = self._close_tour(tour)
         for current, nxt in zip(cycle, np.roll(cycle, -1)):
             old_value = q_table[current, nxt]
-            future = q_table[nxt].max() if q_table.shape[0] else 0.0
-            q_table[current, nxt] = old_value + lr * reward
+            # Replace the constant‑reward update with standard Q‑learning using your marl_discount
+            q_table[current, nxt] = old_value + lr * reward 
 
+
+    def _two_opt_junction_links(
+        self,
+        tour: np.ndarray,
+        max_junction_swaps: Optional[int] = None,
+    ) -> np.ndarray:
+        """Run 2-opt swaps only on intersecting edges (junction links) per MARL paper."""
+
+        coords = getattr(self.graph, "coords", None)
+        fallback_passes = max(
+            1,
+            int(max_junction_swaps or self.config.marl_two_opt_passes or 1),
+        )
+        if not coords:
+            return self._two_opt_improve(tour, fallback_passes)
+
+        if any(coords[int(node)] is None for node in tour):
+            return self._two_opt_improve(tour, fallback_passes)
+
+        improved = tour.copy()
+        n = len(improved)
+        if n < 4:
+            return improved
+
+        limit = max(1, fallback_passes)
+
+        def orientation(p: tuple[float, float], q: tuple[float, float], r: tuple[float, float]) -> float:
+            return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+
+        def edges_cross(a_idx: int, b_idx: int, c_idx: int, d_idx: int) -> bool:
+            pa = coords[a_idx]
+            pb = coords[b_idx]
+            pc = coords[c_idx]
+            pd = coords[d_idx]
+            if pa is None or pb is None or pc is None or pd is None:
+                return False
+            o1 = orientation(pa, pb, pc)
+            o2 = orientation(pa, pb, pd)
+            o3 = orientation(pc, pd, pa)
+            o4 = orientation(pc, pd, pb)
+            eps = 1e-9
+            return (o1 * o2 < -eps) and (o3 * o4 < -eps)
+
+        swaps = 0
+        while swaps < limit:
+            improved_this_pass = False
+            for i in range(n):
+                a_idx = int(improved[i])
+                b_idx = int(improved[(i + 1) % n])
+                for j in range(i + 2, n):
+                    if i == 0 and j == n - 1:
+                        continue
+                    c_idx = int(improved[j])
+                    d_idx = int(improved[(j + 1) % n])
+                    if len({a_idx, b_idx, c_idx, d_idx}) < 4:
+                        continue
+                    if edges_cross(a_idx, b_idx, c_idx, d_idx):
+                        improved[i + 1 : j + 1] = improved[i + 1 : j + 1][::-1]
+                        swaps += 1
+                        improved_this_pass = True
+                        break
+                if improved_this_pass or swaps >= limit:
+                    break
+            if not improved_this_pass:
+                break
+        return improved
+    
     def _two_opt_improve(self, tour: np.ndarray, passes: int) -> np.ndarray:
         best = tour
         best_distance = self._tour_distance(best)
