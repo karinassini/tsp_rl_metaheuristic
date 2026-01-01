@@ -11,15 +11,17 @@ class Graph:
     Represents a graph for the TSP problem, where nodes are cities and edges are distances.
     """
 
-    def __init__(self, nodes, edges=None):
+    def __init__(self, nodes, edges=None, coords=None):
         """
         Initialize the graph.
         :param nodes: List of node identifiers (e.g., city names or indices).
         :param edges: Optional dictionary {(node1, node2): distance}.
+        :param coords: Optional list of (x, y) coordinates aligned with ``nodes``.
         """
         self.nodes = nodes
         self.n_nodes = len(nodes)
         self.edges = edges if edges is not None else {}
+        self.coords = coords if coords is not None else None
         self.adj_matrix = self._build_adj_matrix()
 
     def from_tsplib(filepath):
@@ -93,6 +95,8 @@ class Graph:
 
         nodes = list(range(dimension))
         edges = {}
+
+        coord_list = None
 
         if edge_weight_type == "EXPLICIT":
             weights = np.array(list(map(float, matrix_lines)))
@@ -170,13 +174,14 @@ class Graph:
                     row, col = (i, j) if i <= j else (j, i)
                     matrix[row, col] = value
                     # matrix[j, i] = value
+            coord_list = coords
         else:
             raise ValueError(f"Unsupported EDGE_WEIGHT_TYPE '{edge_weight_type}'.")
 
         for i in range(dimension):
             for j in range(i + 1, dimension):
                 edges[(i, j)] = matrix[i][j]
-        return Graph(nodes, edges)
+        return Graph(nodes, edges, coord_list)
 
     def _build_adj_matrix(self):
         matrix = [[float("inf")] * self.n_nodes for _ in range(self.n_nodes)]

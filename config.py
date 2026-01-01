@@ -50,33 +50,34 @@ class VNSMainConfig:
 class GAMainConfig:
 	"""Configuration for running the Genetic Algorithm experiments."""
 
-	instances: List[str] = field(default_factory=lambda: ["swiss42.tsp"])
+	instances: List[str] = field(default_factory=lambda: ["eil51.tsp"])
 	repeats: int = 1
 	save_dir: Optional[str] = None
 	log_root: str = "outputs/logs/ga"
 	ga_config_kwargs: Dict[str, Any] = field(
 		default_factory=lambda: {
-			"population_size": 120,
-			"max_generations": 400,
-			"mutation_rate": 0.03,
+			"population_size": 300,
+			"max_generations": 100,
+			"mutation_rate": 0.2,
 			"crossover_rate": 0.9,
 			"tournament_size": 3,
 			"elitism": True,
+			"elite_fraction": 0.1,
 			"seed": None,
 			"stagnation_limit": None,
 			"selection_method": "roulette",
 			"rank_selection_pressure": 1.7,
 			"truncation_ratio": 0.3,
 			"initialization_method": "marl",
-			"marl_iterations": 2000,
-			"marl_agents": 10,
-			"marl_epsilon_mix": 0.5,
-			"marl_epsilon": 0.15,
+			"marl_iterations": 5000,
+			"marl_agents": 5,
+			"marl_epsilon": 0.85,
 			"marl_softmax_beta": 2.0,
-			"marl_learning_rate": 0.4,
-			"marl_discount": 0.6,
+			"marl_learning_rate": 0.75,
+			"marl_discount": 0.7,
+			"marl_reward": 1.0,
 			"marl_candidate_ratio": 1.2,
-			"marl_two_opt_passes": 2,
+			"marl_two_opt_passes": 5,
 			"log_dir": None,
 		}
 	)
