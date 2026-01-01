@@ -33,7 +33,6 @@ class GeneticAlgorithmConfig:
     mutation_rate: float = 0.1
     tournament_size: int = 3
     elitism: bool = True
-    elite_fraction: float = 0.05
     seed: Optional[int] = None
     max_generations: int = 300
     stagnation_limit: Optional[int] = None
@@ -43,13 +42,15 @@ class GeneticAlgorithmConfig:
     initialization_method: str = "marl"  # Options: "nearest_random", "marl"
     marl_agents: int = 6
     marl_iterations: int = 40
+    marl_epsilon_mix: float = 0.5  # probability of epsilon-greedy vs softmax
     marl_epsilon: float = 0.15
     marl_softmax_beta: float = 2.0
-    marl_learning_rate: float = 0.4
-    marl_discount: float = 0.6
+    marl_learning_rate: float = 0.75
     marl_reward: float = 1.0
+    marl_discount: float = 0.6
     marl_candidate_ratio: float = 1.5  # how many MARL tours relative to population size
     marl_two_opt_passes: int = 1
+    final_two_opt_passes: int = 2
     log_dir: Optional[str] = None
 
 
@@ -64,7 +65,7 @@ class GeneticTSPSolver:
         best_known_distance: Optional[float] = None,
     ):
         self.graph = graph
-        self.distance_matrix = np.asarray(graph.build_adj_matrix_full(), dtype=float)
+        self.distance_matrix = np.asarray(graph.get_distance_matrix())
         self.n_cities = graph.n_nodes
         self.config = config or GeneticAlgorithmConfig()
         self.random = random.Random(self.config.seed)
@@ -81,8 +82,6 @@ class GeneticTSPSolver:
             raise ValueError("Tournament size cannot exceed population size.")
         if not 0.0 < self.config.truncation_ratio <= 1.0:
             raise ValueError("truncation_ratio must be in (0, 1].")
-        if not 0.0 < self.config.elite_fraction <= 1.0:
-            raise ValueError("elite_fraction must be in (0, 1].")
 
         self._sus_pointer_start: Optional[float] = None
         self._sus_offsets_used: int = 0
@@ -138,7 +137,7 @@ class GeneticTSPSolver:
             fitness = [self._tour_distance(individual) for individual in population]
 
             self.logger.info("Initial population created with %d individuals, avg fitness=%.4f", len(population), np.mean(fitness))
-            self.logger.info("Fitness values: %s", fitness)
+
             best_idx = int(np.argmin(fitness))
             best_tour = population[best_idx]
             best_distance = fitness[best_idx]
@@ -182,8 +181,24 @@ class GeneticTSPSolver:
                         and stagnation_counter >= self.config.stagnation_limit
                     ):
                         break
+            last_generation = history[-1]["generation"] if history else 0
+
+            final_passes = max(0, self.config.final_two_opt_passes or 0)
+            if final_passes > 0 and best_tour is not None:
+                refined = self._two_opt_improve(best_tour.copy(), final_passes)
+                refined_distance = self._tour_distance(refined)
+                if refined_distance + 1e-9 < best_distance:
+                    self.logger.info(
+                        "Final 2-opt refinement improved best distance from %.4f to %.4f",
+                        best_distance,
+                        refined_distance,
+                    )
+                    best_tour = refined
+                    best_distance = refined_distance
+                    self._record_best_known_hit(best_distance, last_generation)
 
             closed_tour = self._close_tour(best_tour)
+
             elapsed = time.perf_counter() - start_time
             self.logger.info("Quantity of crossovers performed: %d", self._crossovers)
             return closed_tour.tolist(), float(best_distance), history, elapsed
@@ -215,10 +230,12 @@ class GeneticTSPSolver:
             self.logger.info("Initial population method: MARL")
             population = self._marl_initial_population()
             self.config.population_size = len(population) # Test
-            self.logger.info("Initial population size from MARL reset: %d", self.config.population_size)
         else:
             self.logger.info("Initial population method: nearest-random")
             population = self._nearest_random_population()
+
+        # while len(population) < self.config.population_size:
+        #     population.append(self._nearest_random_individual())
 
         self.logger.info("Initial population size after padding: %d", len(population))
         return population
@@ -252,45 +269,27 @@ class GeneticTSPSolver:
             iteration_best_tour, iteration_best_distance = iteration_tours[0]
 
             if iteration_best_distance + 1e-9 < best_distance:
-                # Per Fig. 2, only the iteration winner that improves the global best
-                # updates Q-values and enters the candidate pool.
                 best_distance = iteration_best_distance
-                candidate_set.append((iteration_best_tour.copy(), iteration_best_distance))
                 self._marl_update_q_table(q_table, iteration_best_tour, iteration_best_distance)
-            if len(candidate_set) >= target:
-                break
 
-        if not candidate_set:
-            self.logger.warning(
-                "MARL generation yielded no improving candidates; falling back to nearest-random"
-            )
-            return self._nearest_random_population()
+            for tour, distance in iteration_tours:
+                if distance  <= best_distance + 1e-9:
+                    candidate_set.append((tour.copy(), distance))
 
         candidate_set.sort(key=lambda item: item[1])
         unique_population: List[np.ndarray] = []
         seen: set[tuple[int, ...]] = set()
 
-        # Paper states the best overall tour is junction-2-opt refined before emission.
-        best_candidate = candidate_set[0][0].copy()
-        refined_best = self._two_opt_junction_links(best_candidate)
-        key = tuple(refined_best.tolist())
-        if key in seen:
-            pass
-        else:
-            self.logger.info("Refined best MARL candidate distance from %.4f to %.4f", self._tour_distance(best_candidate), self._tour_distance(refined_best))
-            self._append_unique_candidate(unique_population, seen, refined_best)
-
         for tour, _distance in candidate_set:
+            print("[MARL Init] Candidate distance: %.3f" % _distance)
+            opt_refined = self._two_opt_improve(tour.copy(), 2)
+            print("[MARL Init] 2-opt refined distance: %.3f" % self._tour_distance(opt_refined))
+            self._append_unique_candidate(unique_population, seen, opt_refined)
+            nich_refined = self._nich_local_search(tour.copy())
+            self._append_unique_candidate(unique_population, seen, nich_refined)
             if len(unique_population) >= self.config.population_size:
                 break
-            if np.array_equal(tour, best_candidate):
-                continue
-            self._append_unique_candidate(unique_population, seen, tour.copy())
 
-        # while len(unique_population) < self.config.population_size:
-        #     fallback = self._nearest_random_individual()
-        #     self._append_unique_candidate(unique_population, seen, fallback)
-            
         self.logger.info(
             "Generated %d MARL tours from %d candidates",
             len(unique_population),
@@ -309,165 +308,60 @@ class GeneticTSPSolver:
             action = self._marl_select_action(current, list(unvisited), q_table)
             tour.append(action)
             unvisited.remove(action)
+
         return np.asarray(tour, dtype=int)
 
-    def _marl_candidate_actions(
-        self,
-        state: int,
-        available: Sequence[int],
-        q_table: np.ndarray,
-    ) -> List[int]:
-        candidates = list(available)
-        limit = self._marl_candidate_list_limit()
-        if limit is None or limit <= 0 or len(candidates) <= limit:
-            return candidates
-        weights = self._marl_softmax(state, candidates, q_table)
-        ranked = sorted(
-            zip(candidates, weights),
-            key=lambda item: item[1],
-            reverse=True,
-        )
-        return [idx for idx, _weight in ranked[:limit]]
-
-    def _marl_candidate_list_limit(self) -> Optional[int]:
-        if self.n_cities <= 200:
-            return max(1, self.n_cities // 4)
-        return 50
-
     def _marl_select_action(self, state: int, available: List[int], q_table: np.ndarray) -> int:
-        available = list(available)
-        if len(available) == 0:
+        if not available:
             return state
+        mix = max(0.0, min(1.0, self.config.marl_epsilon_mix))
+        if self.random.random() < mix:
+            #if self.random.random() < self.config.marl_epsilon:
+                #return self.random.choice(available)
+            return max(available, key=lambda idx: q_table[state, idx])
 
-        candidate_actions = self._marl_candidate_actions(state, available, q_table)
-        if not candidate_actions:
-            candidate_actions = available
-
-        # Small probability of sampling uniformly from the full mutation list.
-        epsilon = max(0.0, min(1.0, self.config.marl_epsilon))
-        if self.random.random() < epsilon:
-            # From a MCL I will pick the one which has the greater value of P
-            return self.random.choice(available)
-
-        # Otherwise, pick greedily from the candidate set using Eq. (1) weighting.
-        weights = self._marl_softmax(state, candidate_actions, q_table)
+        weights = self._marl_softmax([q_table[state, idx] for idx in available])
         threshold = self.random.random()
-        self.logger.info("MARL action selection threshold: %f", threshold)
         cumulative = 0.0
-        for idx, weight in zip(candidate_actions, weights):
+        for idx, weight in zip(available, weights):
             cumulative += weight
             if cumulative >= threshold:
                 return idx
-        return candidate_actions[-1]
+        return available[-1]
 
-    def _marl_softmax(self, state: int, available: List[int], q_table: np.ndarray) -> List[float]:
+    def _marl_softmax(self, values: List[float]) -> List[float]:
         beta = max(0.1, self.config.marl_softmax_beta)
-        q_values = np.asarray([q_table[state, idx] for idx in available], dtype=float)
-        inverse_distances = np.asarray(
-            [1.0 / max(self._distance(state, idx), 1e-9) for idx in available],
-            dtype=float,
-        )
-        energy = q_values * np.power(inverse_distances, beta)
-        energy -= float(np.max(energy))
-        exp_values = np.exp(energy)
+        shifted = np.asarray(values, dtype=float)
+        shifted = shifted - float(np.max(shifted))
+        exp_values = np.exp(beta * shifted)
         total = float(np.sum(exp_values))
         if total <= 0:
-            return [1.0 / len(available)] * len(available)
+            return [1.0 / len(values)] * len(values)
         return (exp_values / total).tolist()
 
     def _marl_update_q_table(self, q_table: np.ndarray, tour: np.ndarray, tour_distance: float) -> None:
         #reward = 1.0 / max(tour_distance, 1e-9) # the paper implements something fixed
-        reward = self.config.marl_reward
+        reward = 1
         lr = self.config.marl_learning_rate
+        gamma = self.config.marl_discount
         cycle = self._close_tour(tour)
         for current, nxt in zip(cycle, np.roll(cycle, -1)):
             old_value = q_table[current, nxt]
-            # Replace the constant‑reward update with standard Q‑learning using your marl_discount
-            q_table[current, nxt] = old_value + lr * reward 
-
-    def _two_opt_junction_links(
-        self,
-        tour: np.ndarray,
-        max_junction_swaps: Optional[int] = None,
-    ) -> np.ndarray:
-        """Run 2-opt swaps only on intersecting edges (junction links) per MARL paper."""
-
-        coords = getattr(self.graph, "coords", None)
-        fallback_passes = max(
-            1,
-            int(max_junction_swaps or self.config.marl_two_opt_passes or 1),
-        )
-        if not coords:
-            return self._two_opt_improve(tour, fallback_passes)
-
-        if any(coords[int(node)] is None for node in tour):
-            return self._two_opt_improve(tour, fallback_passes)
-
-        improved = tour.copy()
-        n = len(improved)
-        if n < 4:
-            return improved
-
-        limit = max(1, fallback_passes)
-
-        def orientation(p: tuple[float, float], q: tuple[float, float], r: tuple[float, float]) -> float:
-            return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
-
-        def edges_cross(a_idx: int, b_idx: int, c_idx: int, d_idx: int) -> bool:
-            pa = coords[a_idx]
-            pb = coords[b_idx]
-            pc = coords[c_idx]
-            pd = coords[d_idx]
-            if pa is None or pb is None or pc is None or pd is None:
-                return False
-            o1 = orientation(pa, pb, pc)
-            o2 = orientation(pa, pb, pd)
-            o3 = orientation(pc, pd, pa)
-            o4 = orientation(pc, pd, pb)
-            eps = 1e-9
-            return (o1 * o2 < -eps) and (o3 * o4 < -eps)
-
-        swaps = 0
-        while swaps < limit:
-            improved_this_pass = False
-            for i in range(n):
-                a_idx = int(improved[i])
-                b_idx = int(improved[(i + 1) % n])
-                for j in range(i + 2, n):
-                    if i == 0 and j == n - 1:
-                        continue
-                    c_idx = int(improved[j])
-                    d_idx = int(improved[(j + 1) % n])
-                    if len({a_idx, b_idx, c_idx, d_idx}) < 4:
-                        continue
-                    if edges_cross(a_idx, b_idx, c_idx, d_idx):
-                        improved[i + 1 : j + 1] = improved[i + 1 : j + 1][::-1]
-                        swaps += 1
-                        improved_this_pass = True
-                        break
-                if improved_this_pass or swaps >= limit:
-                    break
-            if not improved_this_pass:
-                break
-        return improved
+            future = q_table[nxt].max() if q_table.shape[0] else 0.0
+            q_table[current, nxt] = old_value + lr * reward
 
     def _two_opt_improve(self, tour: np.ndarray, passes: int) -> np.ndarray:
-        """Classic 2-opt post-optimization over an open tour sequence."""
-
-        best = tour.copy()
+        best = tour
         best_distance = self._tour_distance(best)
-        length = len(best)
-        max_passes = max(1, passes)
-
-        for _ in range(max_passes):
+        for _ in range(max(1, passes)):
             improved = False
-            for i in range(length - 2):
-                for j in range(i + 2, length):
-                    # Avoid breaking the implicit cycle link between first and last nodes.
-                    if i == 0 and j == length - 1:
+            length = len(best)
+            for i in range(1, length - 2):
+                for j in range(i + 1, length - 1):
+                    if j - i == 1:
                         continue
                     candidate = best.copy()
-                    candidate[i : j + 1] = candidate[i : j + 1][::-1]
+                    candidate[i:j] = candidate[i:j][::-1]
                     candidate_distance = self._tour_distance(candidate)
                     if candidate_distance + 1e-9 < best_distance:
                         best = candidate
@@ -478,7 +372,6 @@ class GeneticTSPSolver:
                     break
             if not improved:
                 break
-
         return best
 
     def _append_unique_candidate(
@@ -572,10 +465,6 @@ class GeneticTSPSolver:
             ordered_indices = [points[0][2]]
         return ordered_indices
 
-    def _elite_count(self) -> int:
-        count = int(round(self.config.elite_fraction * self.config.population_size))
-        return max(1, min(self.config.population_size, count))
-
     def _next_generation(
         self, population: Sequence[np.ndarray], fitness: Sequence[float]
     ) -> Tuple[List[np.ndarray], List[float], int]:
@@ -587,13 +476,10 @@ class GeneticTSPSolver:
         }
 
         if self.config.elitism:
-            elite_count = self._elite_count()
-            #self.logger.info("Elitism enabled: carrying over %d elite individuals", elite_count)
-            elite_indices = np.argsort(fitness)[:elite_count]
-            for idx in elite_indices:
-                elite = population[int(idx)].copy()
-                new_population.append(elite)
-                new_fitness.append(self._fitness_with_cache(elite, fitness_cache))
+            best_idx = int(np.argmin(fitness))
+            elite = population[best_idx].copy()
+            new_population.append(elite)
+            new_fitness.append(self._fitness_with_cache(elite, fitness_cache))
 
         while len(new_population) < self.config.population_size:
             parent1 = self._selection_operator(population, fitness)
@@ -606,7 +492,7 @@ class GeneticTSPSolver:
                 child1, child2 = parent1.copy(), parent2.copy()
 
             if self.random.random() < self.config.mutation_rate:
-                self._swap_mutation(child1) 
+                self._swap_mutation(child1)
             if self.random.random() < self.config.mutation_rate:
                 self._swap_mutation(child2)
 
