@@ -33,6 +33,7 @@ class GeneticAlgorithmConfig:
     mutation_rate: float = 0.1
     tournament_size: int = 3
     elitism: bool = True
+    elite_fraction: float = 0.05
     seed: Optional[int] = None
     max_generations: int = 300
     stagnation_limit: Optional[int] = None
@@ -42,15 +43,13 @@ class GeneticAlgorithmConfig:
     initialization_method: str = "marl"  # Options: "nearest_random", "marl"
     marl_agents: int = 6
     marl_iterations: int = 40
-    marl_epsilon_mix: float = 0.5  # probability of epsilon-greedy vs softmax
     marl_epsilon: float = 0.15
     marl_softmax_beta: float = 2.0
-    marl_learning_rate: float = 0.75
-    marl_reward: float = 1.0
+    marl_learning_rate: float = 0.4
     marl_discount: float = 0.6
+    marl_reward: float = 1.0
     marl_candidate_ratio: float = 1.5  # how many MARL tours relative to population size
     marl_two_opt_passes: int = 1
-    final_two_opt_passes: int = 2
     log_dir: Optional[str] = None
 
 
@@ -65,7 +64,7 @@ class GeneticTSPSolver:
         best_known_distance: Optional[float] = None,
     ):
         self.graph = graph
-        self.distance_matrix = np.asarray(graph.get_distance_matrix())
+        self.distance_matrix = np.asarray(graph.build_adj_matrix_full(), dtype=float)
         self.n_cities = graph.n_nodes
         self.config = config or GeneticAlgorithmConfig()
         self.random = random.Random(self.config.seed)
@@ -82,6 +81,8 @@ class GeneticTSPSolver:
             raise ValueError("Tournament size cannot exceed population size.")
         if not 0.0 < self.config.truncation_ratio <= 1.0:
             raise ValueError("truncation_ratio must be in (0, 1].")
+        if not 0.0 < self.config.elite_fraction <= 1.0:
+            raise ValueError("elite_fraction must be in (0, 1].")
 
         self._sus_pointer_start: Optional[float] = None
         self._sus_offsets_used: int = 0
@@ -137,7 +138,7 @@ class GeneticTSPSolver:
             fitness = [self._tour_distance(individual) for individual in population]
 
             self.logger.info("Initial population created with %d individuals, avg fitness=%.4f", len(population), np.mean(fitness))
-
+            self.logger.info("Fitness values: %s", fitness)
             best_idx = int(np.argmin(fitness))
             best_tour = population[best_idx]
             best_distance = fitness[best_idx]
@@ -181,24 +182,8 @@ class GeneticTSPSolver:
                         and stagnation_counter >= self.config.stagnation_limit
                     ):
                         break
-            last_generation = history[-1]["generation"] if history else 0
-
-            final_passes = max(0, self.config.final_two_opt_passes or 0)
-            if final_passes > 0 and best_tour is not None:
-                refined = self._two_opt_improve(best_tour.copy(), final_passes)
-                refined_distance = self._tour_distance(refined)
-                if refined_distance + 1e-9 < best_distance:
-                    self.logger.info(
-                        "Final 2-opt refinement improved best distance from %.4f to %.4f",
-                        best_distance,
-                        refined_distance,
-                    )
-                    best_tour = refined
-                    best_distance = refined_distance
-                    self._record_best_known_hit(best_distance, last_generation)
 
             closed_tour = self._close_tour(best_tour)
-
             elapsed = time.perf_counter() - start_time
             self.logger.info("Quantity of crossovers performed: %d", self._crossovers)
             return closed_tour.tolist(), float(best_distance), history, elapsed
@@ -230,12 +215,10 @@ class GeneticTSPSolver:
             self.logger.info("Initial population method: MARL")
             population = self._marl_initial_population()
             self.config.population_size = len(population) # Test
+            self.logger.info("Initial population size from MARL reset: %d", self.config.population_size)
         else:
             self.logger.info("Initial population method: nearest-random")
             population = self._nearest_random_population()
-
-        # while len(population) < self.config.population_size:
-        #     population.append(self._nearest_random_individual())
 
         self.logger.info("Initial population size after padding: %d", len(population))
         return population
@@ -247,6 +230,25 @@ class GeneticTSPSolver:
         seed_tour = nearest_neighbour_tour(self.graph)
         return np.asarray(seed_tour[:-1], dtype=int)
 
+    def _marl_candidate_list_limit(self) -> Optional[int]:
+        if self.n_cities <= 200:
+            return max(1, self.n_cities // 4)
+        return 50
+    
+    def _distance_ranked_actions(
+        self,
+        state: int,
+        available: Sequence[int]
+        ) -> List[int]:
+        limit = self._marl_candidate_list_limit()
+        candidates = list(available)
+        if not candidates:
+            return []
+        candidates.sort(key=lambda idx: self._distance(state, idx))
+        if limit is None or limit <= 0 or len(candidates) <= limit:
+            return candidates
+        return candidates[:limit]
+    
     def _marl_initial_population(self) -> List[np.ndarray]:
         cfg = self.config
         self.logger.info("Starting MARL-based initial population generation with %d agents for up to %d populations", cfg.marl_agents, cfg.population_size)
@@ -269,6 +271,7 @@ class GeneticTSPSolver:
             iteration_best_tour, iteration_best_distance = iteration_tours[0]
 
             if iteration_best_distance + 1e-9 < best_distance:
+                print(f"[MARL Init] New best tour found: {iteration_best_distance:.3f}")
                 best_distance = iteration_best_distance
                 self._marl_update_q_table(q_table, iteration_best_tour, iteration_best_distance)
 
@@ -281,12 +284,10 @@ class GeneticTSPSolver:
         seen: set[tuple[int, ...]] = set()
 
         for tour, _distance in candidate_set:
-            print("[MARL Init] Candidate distance: %.3f" % _distance)
             opt_refined = self._two_opt_improve(tour.copy(), 2)
-            print("[MARL Init] 2-opt refined distance: %.3f" % self._tour_distance(opt_refined))
             self._append_unique_candidate(unique_population, seen, opt_refined)
-            nich_refined = self._nich_local_search(tour.copy())
-            self._append_unique_candidate(unique_population, seen, nich_refined)
+            #nich_refined = self._nich_local_search(tour.copy())
+            #self._append_unique_candidate(unique_population, seen, nich_refined)
             if len(unique_population) >= self.config.population_size:
                 break
 
@@ -305,7 +306,9 @@ class GeneticTSPSolver:
 
         while unvisited:
             current = tour[-1]
-            action = self._marl_select_action(current, list(unvisited), q_table)
+            candidate_actions = self._distance_ranked_actions(current, unvisited)
+            # Next action will take in consideration ranked distance candidates
+            action = self._marl_select_action(current, list(candidate_actions), q_table)
             tour.append(action)
             unvisited.remove(action)
 
@@ -314,10 +317,8 @@ class GeneticTSPSolver:
     def _marl_select_action(self, state: int, available: List[int], q_table: np.ndarray) -> int:
         if not available:
             return state
-        mix = max(0.0, min(1.0, self.config.marl_epsilon_mix))
-        if self.random.random() < mix:
-            #if self.random.random() < self.config.marl_epsilon:
-                #return self.random.choice(available)
+
+        if self.random.random() < self.config.marl_epsilon:
             return max(available, key=lambda idx: q_table[state, idx])
 
         weights = self._marl_softmax([q_table[state, idx] for idx in available])
