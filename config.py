@@ -51,18 +51,18 @@ class GAMainConfig:
 	"""Configuration for running the Genetic Algorithm experiments."""
 
 	instances: List[str] = field(default_factory=lambda: ["eil51.tsp"])
-	repeats: int = 1
+	repeats: int = 3
 	save_dir: Optional[str] = None
 	log_root: str = "outputs/logs/ga"
 	ga_config_kwargs: Dict[str, Any] = field(
 		default_factory=lambda: {
-			"population_size": 300,
-			"max_generations": 100,
+			"population_size": 100,
+			"max_generations": 5000,
 			"mutation_rate": 0.2,
 			"crossover_rate": 0.9,
-			"tournament_size": 3,
+			"tournament_size": 4,
 			"elitism": True,
-			"elite_fraction": 0.1,
+			"elite_fraction": 0.05,
 			"seed": None,
 			"stagnation_limit": None,
 			"selection_method": "roulette",
@@ -78,6 +78,7 @@ class GAMainConfig:
 			"marl_reward": 1.0,
 			"marl_candidate_ratio": 1.2,
 			"marl_two_opt_passes": 5,
+			"marl_top_k": 3,
 			"log_dir": None,
 		}
 	)

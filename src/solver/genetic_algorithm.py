@@ -38,6 +38,7 @@ class GeneticAlgorithmConfig:
     max_generations: int = 300
     stagnation_limit: Optional[int] = None
     selection_method: str = "roulette"
+    crossover_method: str = "smx"
     rank_selection_pressure: float = 1.7
     truncation_ratio: float = 0.3
     initialization_method: str = "marl"  # Options: "nearest_random", "marl"
@@ -52,6 +53,7 @@ class GeneticAlgorithmConfig:
     marl_two_opt_passes: int = 1
     marl_top_k: Optional[int] = 5
     log_dir: Optional[str] = None
+    smx_max_segment_length: Optional[int] = None
 
 
 class GeneticTSPSolver:
@@ -137,8 +139,8 @@ class GeneticTSPSolver:
             self.logger.info("Initial population generated in %.4f seconds", elapsed)
 
             fitness = [self._tour_distance(individual) for individual in population]
-
             self.logger.info("Initial population created with %d individuals, avg fitness=%.4f", len(population), np.mean(fitness))
+            
             self.logger.info("Fitness values: %s", fitness)
             best_idx = int(np.argmin(fitness))
             best_tour = population[best_idx]
@@ -147,23 +149,49 @@ class GeneticTSPSolver:
             self._record_best_known_hit(best_distance, 0)
 
             stagnation_counter = 0
-            
+            generation = 0
             start_time = time.perf_counter()
             last_generation = 0
+            max_generations = max(1, self.config.max_generations)
+            population_limit = max(1, self.config.population_size)
 
             if self.best_known_hit_generation is None:
-                for generation in range(1, self.config.max_generations + 1):
-                    population, fitness = self._next_generation(population, fitness)
+                while generation < max_generations:
+                    generation += 1
                     last_generation = generation
 
-                    current_idx = int(np.argmin(fitness))
-                    current_distance = fitness[current_idx]
+                    parent1 = self._selection_operator(population, fitness)
+                    parent2 = self._selection_operator(population, fitness)
+
+                    child = self._crossover(parent1, parent2)
+                    self._crossovers += 1
+
+                    if self.random.random() < self.config.mutation_rate:
+                        self._swap_mutation(child)
+
+                    child_distance = self._tour_distance(child)
+                    population.append(child)
+                    fitness.append(child_distance)
+
+                    # The paper simply implements pop = pop + offspring if the offspring is
+                    # better than the best individual
+                    population, fitness = self._tournament_survivor_selection(
+                        population,
+                        fitness,
+                        population_limit,
+                    )
+
+                    current_best_idx = int(np.argmin(fitness))
+                    current_best_distance = fitness[current_best_idx]
                     hit_best = False
-                    if current_distance + 1e-9 < best_distance:
-                        best_distance = current_distance
-                        best_tour = population[current_idx]
+                    if current_best_distance + 1e-9 < best_distance:
+                        best_distance = current_best_distance
+                        best_tour = population[current_best_idx].copy()
                         stagnation_counter = 0
-                        hit_best = self._record_best_known_hit(best_distance, generation)
+                        hit_best = self._record_best_known_hit(
+                            best_distance,
+                            generation,
+                        )
                     else:
                         stagnation_counter += 1
 
@@ -183,6 +211,28 @@ class GeneticTSPSolver:
                         and stagnation_counter >= self.config.stagnation_limit
                     ):
                         break
+
+            optimized_best = self._two_opt_improve(
+                best_tour.copy(),
+                max(1, int(self.config.marl_two_opt_passes or 1)),
+            )
+            optimized_distance = self._tour_distance(optimized_best)
+            if optimized_distance + 1e-9 < best_distance:
+                best_distance = optimized_distance
+                best_tour = optimized_best
+                population.append(best_tour.copy())
+                fitness.append(best_distance)
+                if len(population) > population_limit:
+                    worst_idx = int(np.argmax(fitness))
+                    del population[worst_idx]
+                    del fitness[worst_idx]
+                history.append(
+                    self._generation_stats(
+                        last_generation + 1,
+                        fitness,
+                        best_distance,
+                    )
+                )
 
             closed_tour = self._close_tour(best_tour)
             elapsed = time.perf_counter() - start_time
@@ -215,13 +265,51 @@ class GeneticTSPSolver:
         if method == "marl":
             self.logger.info("Initial population method: MARL")
             population = self._marl_initial_population()
-            self.config.population_size = len(population) # Test
-            self.logger.info("Initial population size from MARL reset: %d", self.config.population_size)
+            fitness = [self._tour_distance(individual) for individual in population]
+            self.logger.info("Initial population created with %d individuals, avg fitness=%.4f", len(population), np.mean(fitness))
+            
+            #self.config.population_size = len(population) # Test
+            #self.logger.info("Initial population size from MARL reset: %d", self.config.population_size)
         else:
             self.logger.info("Initial population method: nearest-random")
             population = self._nearest_random_population()
 
-        self.logger.info("Initial population size after padding: %d", len(population))
+        increase_pop = False
+        if increase_pop: 
+            population_method = population.copy()
+            seen: set[tuple[int, ...]] = set()
+            unique_population: List[np.ndarray] = []
+            for individual in population:
+                self._append_unique_candidate(unique_population, seen, individual)
+            population = unique_population
+
+            assert len(population_method) == len(unique_population), "Initial population uniqueness check failed."
+
+            attempts = 0
+            max_attempts = max(10 * self.config.population_size, 100)
+            while len(population) < self.config.population_size and attempts < max_attempts:
+                attempts += 1
+                candidate = self._nearest_random_individual()
+                before = len(population)
+                self._append_unique_candidate(population, seen, candidate)
+                if len(population) == before:
+                    continue
+
+            if population:
+                fitness_snapshot = [self._tour_distance(individual) for individual in population]
+                mean_distance = float(np.mean(fitness_snapshot))
+                std_distance = float(np.std(fitness_snapshot)) if len(fitness_snapshot) > 1 else 0.0
+                self.logger.info(
+                    "Initial population mean distance: %.4f (std=%.4f)",
+                    mean_distance,
+                    std_distance,
+                )
+
+            self.logger.info("Initial population size after padding: %d", len(population))
+        else:
+            self.config.population_size = len(population)
+            self.logger.info("Initial population size: %d", len(population))
+
         return population
 
     def _nearest_random_population(self) -> List[np.ndarray]:
@@ -272,7 +360,6 @@ class GeneticTSPSolver:
             iteration_best_tour, iteration_best_distance = iteration_tours[0]
 
             if iteration_best_distance + 1e-9 < best_distance:
-                print(f"[MARL Init] New best tour found: {iteration_best_distance:.3f}")
                 best_distance = iteration_best_distance
                 self._marl_update_q_table(q_table, iteration_best_tour, iteration_best_distance)
 
@@ -285,12 +372,15 @@ class GeneticTSPSolver:
         seen: set[tuple[int, ...]] = set()
 
         for tour, _distance in candidate_set:
-            opt_refined = self._two_opt_improve(tour.copy(), 2)
+            opt_refined = self._two_opt_junction_links(tour.copy(), 5)
             self._append_unique_candidate(unique_population, seen, opt_refined)
-            #nich_refined = self._nich_local_search(tour.copy())
-            #self._append_unique_candidate(unique_population, seen, nich_refined)
             if len(unique_population) >= self.config.population_size:
                 break
+
+            # nich_refined = self._nich_local_search(opt_refined.copy())
+            # self._append_unique_candidate(unique_population, seen, nich_refined)
+            # if len(unique_population) >= self.config.population_size:
+            #     break
 
         self.logger.info(
             "Generated %d MARL tours from %d candidates",
@@ -679,6 +769,42 @@ class GeneticTSPSolver:
         chosen = self.random.choice(sorted_indices[:top_k])
         return population[chosen].copy()
 
+    def _tournament_survivor_selection(
+        self,
+        population: Sequence[np.ndarray],
+        fitness: Sequence[float],
+        population_limit: int,
+    ) -> Tuple[List[np.ndarray], List[float]]:
+        """Select survivors via tournaments over the combined parent/offspring pool."""
+
+        if len(population) <= population_limit:
+            return list(population), list(map(float, fitness))
+
+        survivors: List[np.ndarray] = []
+        survivor_fitness: List[float] = []
+        available_indices = list(range(len(population)))
+        tournament_size = max(1, self.config.tournament_size)
+
+        while len(survivors) < population_limit and available_indices:
+            competitors = self.random.sample(
+                available_indices,
+                min(tournament_size, len(available_indices)),
+            )
+            best_idx = min(competitors, key=lambda idx: fitness[idx])
+            survivors.append(population[best_idx].copy())
+            survivor_fitness.append(float(fitness[best_idx]))
+            available_indices.remove(best_idx)
+
+        if len(survivors) < population_limit and available_indices:
+            remaining = sorted(available_indices, key=lambda idx: fitness[idx])
+            for idx in remaining:
+                if len(survivors) >= population_limit:
+                    break
+                survivors.append(population[idx].copy())
+                survivor_fitness.append(float(fitness[idx]))
+
+        return survivors, survivor_fitness
+
     def _fitness_to_weights(self, fitness: Sequence[float]) -> np.ndarray:
         values = np.asarray(fitness, dtype=float)
         weights = 1.0 / (values + 1e-12)
@@ -732,6 +858,94 @@ class GeneticTSPSolver:
             return child
 
         return make_child(parent1, parent2), make_child(parent2, parent1)
+
+    def _crossover(self, parent1: np.ndarray, parent2: np.ndarray) -> np.ndarray:
+        """Dispatch crossover based on `crossover_method` config.
+
+        Returns a single offspring to fit the current steady-state loop.
+        Supported methods:
+        - "smx": sequential mixing crossover (default)
+        - "ordered": ordered crossover (first child)
+        """
+
+        method = (self.config.crossover_method or "smx").lower()
+        if method == "smx":
+            return self._smx_crossover(parent1, parent2)
+        if method == "ordered":
+            child, _ = self._ordered_crossover(parent1, parent2)
+            return child
+        raise ValueError(
+            f"Unknown crossover_method '{self.config.crossover_method}'. Supported: smx, ordered."
+        )
+
+    def _smx_crossover(self, parent1: np.ndarray, parent2: np.ndarray) -> np.ndarray:
+        """Sequential mixing crossover following the reference SMX flow chart."""
+
+        size = len(parent1)
+        offspring = -np.ones(size, dtype=int)
+        parents = (parent1, parent2)
+        parent_positions = [0, 0]
+        parent_index = 0
+        offspring_pos = 0
+        seen: set[int] = set()
+
+        configured_segment = self.config.smx_max_segment_length
+        if configured_segment is None or configured_segment <= 0:
+            configured_segment = max(1, size // 4)
+        max_segment = min(size, configured_segment)
+
+        while offspring_pos < size:
+            # Switch to the next parent if the current one is exhausted.
+            if parent_positions[parent_index] >= size:
+                other_index = 1 - parent_index
+                if parent_positions[other_index] >= size:
+                    break
+                parent_index = other_index
+                continue
+
+            segment_len = self.random.randint(1, max_segment)
+            inserted_this_round = 0
+            parent = parents[parent_index]
+            pos = parent_positions[parent_index]
+
+            while (
+                pos < size
+                and inserted_this_round < segment_len
+                and offspring_pos < size
+            ):
+                gene = int(parent[pos])
+                pos += 1
+                if gene in seen:
+                    continue  # visited genes are discarded
+                offspring[offspring_pos] = gene
+                offspring_pos += 1
+                seen.add(gene)
+                inserted_this_round += 1
+
+            parent_positions[parent_index] = pos
+            parent_index = 1 - parent_index
+
+            if inserted_this_round == 0 and parent_positions[0] >= size and parent_positions[1] >= size:
+                break
+
+        if offspring_pos < size:
+            for parent in parents:
+                for gene in parent:
+                    gene = int(gene)
+                    if gene in seen:
+                        continue
+                    offspring[offspring_pos] = gene
+                    offspring_pos += 1
+                    seen.add(gene)
+                    if offspring_pos == size:
+                        break
+                if offspring_pos == size:
+                    break
+
+        if offspring_pos != size:
+            raise ValueError("SMX crossover failed to construct a valid child tour")
+
+        return offspring
 
     def _swap_mutation(self, individual: np.ndarray) -> None:
         i, j = sorted(self.random.sample(range(len(individual)), 2))

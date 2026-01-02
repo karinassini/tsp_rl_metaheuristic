@@ -5,6 +5,7 @@ import time
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
+from statistics import mean, stdev
 
 import matplotlib.pyplot as plt
 
@@ -33,40 +34,43 @@ def _plot_learning_iterations_curve(
     if not records:
         return
 
-    grouped: dict[int, list[dict[str, float | int]]] = {}
-    for entry in records:
-        key = int(entry["marl_iterations"])
-        grouped.setdefault(key, []).append(entry)
-
-    xs = sorted(grouped.keys())
-    avg_distances: list[float] = []
-    avg_runtimes: list[float] = []
-    std_distances: list[float] = []
-    run_counts: list[int] = []
-
-    for key in xs:
-        bucket = grouped[key]
-        distances = [float(item["distance"]) for item in bucket]
-        runtimes = [float(item["runtime"]) for item in bucket]
-        run_counts.append(len(bucket))
-        mean_distance = sum(distances) / max(1, len(distances))
-        avg_distances.append(mean_distance)
-        if len(distances) > 1:
-            variance = sum((value - mean_distance) ** 2 for value in distances) / (len(distances) - 1)
-            std_distances.append(variance ** 0.5)
-        else:
-            std_distances.append(0.0)
-        avg_runtimes.append(sum(runtimes) / max(1, len(runtimes)))
+    distances = [float(item["distance"]) for item in records]
+    runtimes = [float(item["runtime"]) for item in records]
+    avg_distance = mean(distances)
+    std_distance = stdev(distances) if len(distances) > 1 else 0.0
+    avg_runtime = mean(runtimes)
 
     os.makedirs(save_dir, exist_ok=True)
     plt.figure(figsize=(6, 4))
-    plt.plot(xs, avg_distances, color="black", marker="s", linewidth=1.8)
-    for x, y, runtime in zip(xs, avg_distances, avg_runtimes):
-        plt.scatter([x], [y], color="black")
-        plt.text(x, y + 0.4, f"{runtime:.2f}s", ha="center", va="bottom", fontsize=9)
+    # Scatter every run (runtime on x, distance on y) and annotate with runtime.
+    plt.scatter(runtimes, distances, color="dimgray", alpha=0.8, label="Runs")
+    for x, y in zip(runtimes, distances):
+        plt.text(x, y + 0.3, f"{x:.2f}s", ha="center", va="bottom", fontsize=8, color="dimgray")
 
-    plt.title("Average tour length vs. MNLI", fontsize=12)
-    plt.xlabel("Maximum number of learning iterations (MNLI)", fontsize=11)
+    # Highlight the aggregate with an error bar for distance std-dev.
+    plt.errorbar(
+        [avg_runtime],
+        [avg_distance],
+        yerr=[std_distance],
+        fmt="s",
+        color="black",
+        ecolor="gray",
+        elinewidth=1.5,
+        capsize=4,
+        label="Average ±1σ",
+    )
+    plt.text(
+        avg_runtime,
+        avg_distance + max(0.5, std_distance * 0.2),
+        f"μ {avg_runtime:.2f}s",
+        ha="center",
+        va="bottom",
+        fontsize=9,
+        color="black",
+    )
+
+    plt.title("Average tour length vs. runtime", fontsize=12)
+    plt.xlabel("Runtime (s)", fontsize=11)
     plt.ylabel(f"Average tour length ({instance_name})", fontsize=11)
     plt.grid(True, linestyle=":", linewidth=0.5)
     plt.tight_layout()
@@ -77,22 +81,19 @@ def _plot_learning_iterations_curve(
 
     payload = {
         "instance": instance_name,
-        "points": [
-            {
-                "marl_iterations": int(x),
-                "avg_distance": float(y),
-                "std_distance": float(std),
-                "avg_runtime_seconds": float(rt),
-                "runs": count,
-            }
-            for x, y, std, rt, count in zip(xs, avg_distances, std_distances, avg_runtimes, run_counts)
-        ],
+        "runs": len(records),
+        "aggregate": {
+            "avg_distance": float(avg_distance),
+            "std_distance": float(std_distance),
+            "avg_runtime_seconds": float(avg_runtime),
+        },
+        "runs_detail": records,
     }
     json_path = os.path.join(save_dir, "learning_iterations_curve.json")
     with open(json_path, "w", encoding="utf-8") as fp:
         json.dump(payload, fp, indent=2)
 
-    print(f"Saved learning-iteration curve to {plot_path}")
+    print(f"Saved average distance vs. runtime plot to {plot_path}")
 
 
 def _prepare_ga_config(base_kwargs: dict, log_dir: str | None, run_idx: int) -> GeneticAlgorithmConfig:
@@ -125,6 +126,7 @@ def run_ga_experiments(graph: Graph, instance: str, config: GAMainConfig, curren
     base_kwargs = dict(config.ga_config_kwargs or {})
     learning_curve_records: list[dict[str, float | int]] = []
     aggregate_save_root: str | None = None
+    plot_series_key = "ga"
 
     for run_idx in range(config.repeats):
         run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -193,6 +195,19 @@ def run_ga_experiments(graph: Graph, instance: str, config: GAMainConfig, curren
             iteration_first_reach=solver.best_known_hit_generation,
             start_city_initialization=None,
         )
+
+        if run_idx == config.repeats - 1:
+            try:
+                SUMMARY_TRACKER.plot_time_to_target(
+                    instance_name=instance_name,
+                    method=init_method,
+                    iteration_max=solver_config.max_generations,
+                    save_dir=save_root,
+                    solver_name=type(solver).__name__,
+                    store_key=f"{init_method}|{plot_series_key}",
+                )
+            except ValueError as exc:
+                print(f"Skipping time-to-target plot: {exc}")
 
         learning_curve_records.append(
             {
