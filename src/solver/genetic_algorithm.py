@@ -54,6 +54,7 @@ class GeneticAlgorithmConfig:
     marl_top_k: Optional[int] = 5
     log_dir: Optional[str] = None
     smx_max_segment_length: Optional[int] = None
+    survivor_selection_method: str = "tournament"  # options: "tournament", "best_improves"
 
 
 class GeneticTSPSolver:
@@ -170,16 +171,31 @@ class GeneticTSPSolver:
                         self._swap_mutation(child)
 
                     child_distance = self._tour_distance(child)
-                    population.append(child)
-                    fitness.append(child_distance)
 
-                    # The paper simply implements pop = pop + offspring if the offspring is
-                    # better than the best individual
-                    population, fitness = self._tournament_survivor_selection(
-                        population,
-                        fitness,
-                        population_limit,
-                    )
+                    survivor_method = (
+                        self.config.survivor_selection_method or "tournament"
+                    ).lower()
+
+                    if survivor_method == "tournament":
+                        population.append(child)
+                        fitness.append(child_distance)
+                        population, fitness = self._tournament_survivor_selection(
+                            population,
+                            fitness,
+                            population_limit,
+                        )
+                    elif survivor_method == "best_improves":
+                        population, fitness = self._best_improves_survivor(
+                            population,
+                            fitness,
+                            child,
+                            child_distance,
+                            population_limit,
+                        )
+                    else:
+                        raise ValueError(
+                            "Unsupported survivor_selection_method. Use 'tournament' or 'best_improves'."
+                        )
 
                     current_best_idx = int(np.argmin(fitness))
                     current_best_distance = fitness[current_best_idx]
@@ -805,6 +821,40 @@ class GeneticTSPSolver:
 
         return survivors, survivor_fitness
 
+    def _best_improves_survivor(
+        self,
+        population: Sequence[np.ndarray],
+        fitness: Sequence[float],
+        child: np.ndarray,
+        child_distance: float,
+        population_limit: int,
+    ) -> Tuple[List[np.ndarray], List[float]]:
+        """Accept the child only if it improves the current best tour.
+
+        If accepted and the pool exceeds the limit, remove the worst individual.
+        """
+
+        pop_list: List[np.ndarray] = [individual.copy() for individual in population]
+        fitness_list: List[float] = [float(value) for value in fitness]
+
+        if not pop_list:
+            pop_list.append(child.copy())
+            fitness_list.append(float(child_distance))
+            return pop_list, fitness_list
+
+        best_current = min(fitness_list)
+        tolerance = 1e-9
+        if child_distance + tolerance < best_current:
+            pop_list.append(child.copy())
+            fitness_list.append(float(child_distance))
+
+            if len(pop_list) > population_limit:
+                worst_idx = int(np.argmax(fitness_list))
+                del pop_list[worst_idx]
+                del fitness_list[worst_idx]
+
+        return pop_list, fitness_list
+
     def _fitness_to_weights(self, fitness: Sequence[float]) -> np.ndarray:
         values = np.asarray(fitness, dtype=float)
         weights = 1.0 / (values + 1e-12)
@@ -884,10 +934,10 @@ class GeneticTSPSolver:
         size = len(parent1)
         offspring = -np.ones(size, dtype=int)
         parents = (parent1, parent2)
-        parent_positions = [0, 0]
-        parent_index = 0
-        offspring_pos = 0
-        seen: set[int] = set()
+        parent_positions = [0, 0]  # how far we have read from each parent
+        parent_index = 0  # which parent we currently pull from
+        offspring_pos = 0  # next write position in the child
+        seen: set[int] = set()  # genes already placed
 
         configured_segment = self.config.smx_max_segment_length
         if configured_segment is None or configured_segment <= 0:
@@ -895,7 +945,7 @@ class GeneticTSPSolver:
         max_segment = min(size, configured_segment)
 
         while offspring_pos < size:
-            # Switch to the next parent if the current one is exhausted.
+            # If the active parent is exhausted, try the other; stop if both are done.
             if parent_positions[parent_index] >= size:
                 other_index = 1 - parent_index
                 if parent_positions[other_index] >= size:
@@ -903,11 +953,13 @@ class GeneticTSPSolver:
                 parent_index = other_index
                 continue
 
+            # Choose how many consecutive genes to copy from the current parent.
             segment_len = self.random.randint(1, max_segment)
             inserted_this_round = 0
             parent = parents[parent_index]
             pos = parent_positions[parent_index]
 
+            # Stream genes from the current parent, skipping duplicates, until the segment ends.
             while (
                 pos < size
                 and inserted_this_round < segment_len
@@ -916,18 +968,20 @@ class GeneticTSPSolver:
                 gene = int(parent[pos])
                 pos += 1
                 if gene in seen:
-                    continue  # visited genes are discarded
+                    continue  # skip already placed genes
                 offspring[offspring_pos] = gene
                 offspring_pos += 1
                 seen.add(gene)
                 inserted_this_round += 1
 
             parent_positions[parent_index] = pos
-            parent_index = 1 - parent_index
+            parent_index = 1 - parent_index  # alternate parents for the next segment
 
+            # If nothing was inserted and both parents are spent, leave the loop.
             if inserted_this_round == 0 and parent_positions[0] >= size and parent_positions[1] >= size:
                 break
 
+        # Fill any remaining slots with unseen genes in parent order (fallback completion).
         if offspring_pos < size:
             for parent in parents:
                 for gene in parent:
