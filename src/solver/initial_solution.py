@@ -11,10 +11,444 @@ from __future__ import annotations
 
 import json
 import random
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Set, Tuple
 import numpy as np
 from config import QLearningConfig
 from src.structures.graph import Graph
+
+# MARL helpers for GA initialisation
+def _distance(distance_matrix: np.ndarray, i: int, j: int) -> float:
+    lower = min(i, j)
+    upper = max(i, j)
+    return float(distance_matrix[lower, upper])
+
+
+def _tour_distance(tour: np.ndarray, distance_matrix: np.ndarray) -> float:
+    cycle = tour if tour[0] == tour[-1] else np.append(tour, tour[0])
+    rolled = np.roll(cycle, -1)
+    lower = np.minimum(cycle, rolled)
+    upper = np.maximum(cycle, rolled)
+    return float(np.sum(distance_matrix[lower, upper]))
+
+
+def _append_unique_candidate(
+    population: List[np.ndarray],
+    seen: Set[Tuple[int, ...]],
+    candidate: np.ndarray,
+) -> None:
+    key = tuple(candidate.tolist())
+    if key in seen:
+        return
+    population.append(candidate)
+    seen.add(key)
+
+
+def _two_opt_improve(distance_matrix: np.ndarray, tour: np.ndarray, passes: int) -> np.ndarray:
+    best = tour
+    best_distance = _tour_distance(best, distance_matrix)
+    for _ in range(max(1, passes)):
+        improved = False
+        length = len(best)
+        for i in range(1, length - 2):
+            for j in range(i + 1, length - 1):
+                if j - i == 1:
+                    continue
+                candidate = best.copy()
+                candidate[i:j] = candidate[i:j][::-1]
+                candidate_distance = _tour_distance(candidate, distance_matrix)
+                if candidate_distance + 1e-9 < best_distance:
+                    best = candidate
+                    best_distance = candidate_distance
+                    improved = True
+                    break
+            if improved:
+                break
+        if not improved:
+            break
+    return best
+
+
+def _two_opt_junction_links(
+    graph: Graph,
+    distance_matrix: np.ndarray,
+    tour: np.ndarray,
+    max_junction_swaps: Optional[int] = None,
+    two_opt_passes: int = 1,
+) -> np.ndarray:
+    coords = getattr(graph, "coords", None)
+    fallback_passes = max(1, int(max_junction_swaps or two_opt_passes or 1))
+    if not coords:
+        return _two_opt_improve(distance_matrix, tour, fallback_passes)
+
+    if any(coords[int(node)] is None for node in tour):
+        return _two_opt_improve(distance_matrix, tour, fallback_passes)
+
+    improved = tour.copy()
+    n = len(improved)
+    if n < 4:
+        return improved
+
+    limit = max(1, fallback_passes)
+
+    def orientation(p: tuple[float, float], q: tuple[float, float], r: tuple[float, float]) -> float:
+        return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+
+    def edges_cross(a_idx: int, b_idx: int, c_idx: int, d_idx: int) -> bool:
+        pa = coords[a_idx]
+        pb = coords[b_idx]
+        pc = coords[c_idx]
+        pd = coords[d_idx]
+        if pa is None or pb is None or pc is None or pd is None:
+            return False
+        o1 = orientation(pa, pb, pc)
+        o2 = orientation(pa, pb, pd)
+        o3 = orientation(pc, pd, pa)
+        o4 = orientation(pc, pd, pb)
+        eps = 1e-9
+        return (o1 * o2 < -eps) and (o3 * o4 < -eps)
+
+    swaps = 0
+    while swaps < limit:
+        improved_this_pass = False
+        for i in range(n):
+            a_idx = int(improved[i])
+            b_idx = int(improved[(i + 1) % n])
+            for j in range(i + 2, n):
+                if i == 0 and j == n - 1:
+                    continue
+                c_idx = int(improved[j])
+                d_idx = int(improved[(j + 1) % n])
+                if len({a_idx, b_idx, c_idx, d_idx}) < 4:
+                    continue
+                if edges_cross(a_idx, b_idx, c_idx, d_idx):
+                    improved[i + 1 : j + 1] = improved[i + 1 : j + 1][::-1]
+                    swaps += 1
+                    improved_this_pass = True
+                    break
+            if improved_this_pass or swaps >= limit:
+                break
+        if not improved_this_pass:
+            break
+    return improved
+
+
+def _convex_hull_indices(graph: Graph) -> List[int]:
+    coords = getattr(graph, "coords", None)
+    if not coords:
+        return []
+
+    points: List[tuple[float, float, int]] = []
+    for idx, coord in enumerate(coords):
+        if coord is None:
+            continue
+        x, y = coord
+        points.append((float(x), float(y), idx))
+
+    if len(points) <= 1:
+        return [idx for *_ignored, idx in points]
+
+    points.sort(key=lambda item: (item[0], item[1], item[2]))
+
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+    def build_half(seq):
+        half: List[tuple[float, float, int]] = []
+        for pt in seq:
+            while len(half) >= 2 and cross(half[-2], half[-1], pt) <= 0:
+                half.pop()
+            half.append(pt)
+        return half
+
+    lower = build_half(points)
+    upper = build_half(reversed(points))
+    hull = lower[:-1] + upper[:-1]
+
+    seen: Set[int] = set()
+    ordered_indices: List[int] = []
+    for _, _, idx in hull:
+        if idx in seen:
+            continue
+        ordered_indices.append(idx)
+        seen.add(idx)
+    if not ordered_indices and points:
+        ordered_indices = [points[0][2]]
+    return ordered_indices
+
+
+def _nich_local_search(graph: Graph, distance_matrix: np.ndarray, tour: np.ndarray) -> np.ndarray:
+    hull = _convex_hull_indices(graph)
+    if not hull:
+        return tour
+
+    hull_cycle = hull.copy()
+    hull_set = set(hull_cycle)
+    nich_tour = hull_cycle.copy()
+    remaining = [int(node) for node in tour.tolist() if int(node) not in hull_set]
+    if not remaining:
+        return np.asarray(nich_tour, dtype=int)
+
+    for node in remaining:
+        best_pos: Optional[int] = None
+        best_delta = float("inf")
+        cycle_len = len(nich_tour)
+
+        if cycle_len == 0:
+            nich_tour.append(node)
+            continue
+
+        for i in range(cycle_len):
+            a = nich_tour[i]
+            b = nich_tour[(i + 1) % cycle_len] if cycle_len > 1 else nich_tour[0]
+            delta = _distance(distance_matrix, a, node) + _distance(distance_matrix, node, b)
+            if cycle_len > 1:
+                delta -= _distance(distance_matrix, a, b)
+            if delta < best_delta:
+                best_delta = delta
+                best_pos = i + 1
+
+        insert_at = best_pos if best_pos is not None else len(nich_tour)
+        nich_tour.insert(insert_at % (len(nich_tour) + 1), node)
+
+    return np.asarray(nich_tour, dtype=int)
+
+
+def _marl_candidate_list_limit(n_cities: int) -> int:
+    if n_cities <= 200:
+        return max(1, n_cities // 4)
+    return 50
+
+
+def _distance_ranked_actions(
+    distance_matrix: np.ndarray,
+    state: int,
+    available: Iterable[int],
+    marl_top_k: Optional[int],
+) -> List[int]:
+    limit = marl_top_k
+    candidates = list(available)
+    if not candidates:
+        return []
+    candidates.sort(key=lambda idx: _distance(distance_matrix, state, idx))
+    if limit is None or limit <= 0 or len(candidates) <= limit:
+        return candidates
+    return candidates[:limit]
+
+
+def _marl_softmax(
+    distance_matrix: np.ndarray,
+    state: int,
+    available: List[int],
+    q_table: np.ndarray,
+    beta: float,
+) -> List[float]:
+    beta = max(0.1, beta)
+    q_values = np.asarray([q_table[state, idx] for idx in available], dtype=float)
+    inverse_distances = np.asarray(
+        [1.0 / max(_distance(distance_matrix, state, idx), 1e-9) for idx in available],
+        dtype=float,
+    )
+    energy = q_values * np.power(inverse_distances, beta)
+    energy -= float(np.max(energy))
+    exp_values = np.exp(energy)
+    total = float(np.sum(exp_values))
+    if total <= 0:
+        return [1.0 / len(available)] * len(available)
+    return (exp_values / total).tolist()
+
+
+def _marl_candidate_actions(
+    distance_matrix: np.ndarray,
+    state: int,
+    available: Iterable[int],
+    q_table: np.ndarray,
+    marl_top_k: Optional[int],
+) -> List[int]:
+    candidates = list(available)
+    limit = _marl_candidate_list_limit(len(distance_matrix))
+    if limit is None or limit <= 0 or len(candidates) <= limit:
+        return candidates
+    weights = _marl_softmax(distance_matrix, state, candidates, q_table, beta=1.0)
+    ranked = sorted(
+        zip(candidates, weights),
+        key=lambda item: item[1],
+        reverse=True,
+    )
+    top = [idx for idx, _weight in ranked[:limit]]
+    if marl_top_k is not None and marl_top_k > 0:
+        top = top[:marl_top_k]
+    return top
+
+
+def _marl_select_action(
+    distance_matrix: np.ndarray,
+    state: int,
+    available: List[int],
+    q_table: np.ndarray,
+    rng: random.Random,
+    epsilon: float,
+    beta: float,
+    marl_top_k: Optional[int],
+) -> int:
+    if not available:
+        return state
+
+    candidate_actions = _marl_candidate_actions(
+        distance_matrix,
+        state,
+        available,
+        q_table,
+        marl_top_k,
+    )
+
+    if rng.random() < epsilon:
+        return candidate_actions[0]
+
+    weights = _marl_softmax(distance_matrix, state, candidate_actions, q_table, beta)
+    threshold = rng.random()
+    cumulative = 0.0
+    for idx, weight in zip(candidate_actions, weights):
+        cumulative += weight
+        if cumulative >= threshold:
+            return idx
+    return candidate_actions[-1]
+
+
+def _marl_construct_tour(
+    distance_matrix: np.ndarray,
+    q_table: np.ndarray,
+    rng: random.Random,
+    marl_top_k: Optional[int],
+    epsilon: float,
+    beta: float,
+) -> np.ndarray:
+    n_cities = distance_matrix.shape[0]
+    start = rng.randrange(n_cities)
+    unvisited = set(range(n_cities))
+    unvisited.remove(start)
+    tour = [start]
+
+    while unvisited:
+        current = tour[-1]
+        candidate_actions = _distance_ranked_actions(
+            distance_matrix,
+            current,
+            unvisited,
+            marl_top_k,
+        )
+
+        action = _marl_select_action(
+            distance_matrix,
+            current,
+            list(candidate_actions),
+            q_table,
+            rng,
+            epsilon,
+            beta,
+            marl_top_k,
+        )
+        tour.append(action)
+        unvisited.remove(action)
+
+    return np.asarray(tour, dtype=int)
+
+
+def _marl_update_q_table(
+    distance_matrix: np.ndarray,
+    q_table: np.ndarray,
+    tour: np.ndarray,
+    tour_distance: float,
+    learning_rate: float,
+    reward: float,
+) -> None:
+    lr = learning_rate
+    cycle = tour if tour[0] == tour[-1] else np.append(tour, tour[0])
+    for current, nxt in zip(cycle, np.roll(cycle, -1)):
+        old_value = q_table[current, nxt]
+        q_table[current, nxt] = old_value + lr * reward
+
+
+def marl_initial_population(
+    graph: Graph,
+    rng: random.Random,
+    *,
+    population_size: int,
+    marl_agents: int,
+    marl_iterations: int,
+    marl_candidate_ratio: float,
+    marl_two_opt_passes: int,
+    marl_top_k: Optional[int],
+    marl_reward: float,
+    marl_learning_rate: float,
+    marl_softmax_beta: float,
+    marl_epsilon: float,
+) -> List[np.ndarray]:
+    """Generate a MARL-seeded population for the GA."""
+
+    distance_matrix = np.asarray(graph.build_adj_matrix_full(), dtype=float)
+    n_cities = graph.n_nodes
+    q_table = np.ones((n_cities, n_cities), dtype=float)
+    candidate_set: List[tuple[np.ndarray, float]] = []
+    best_distance = float("inf")
+    target = max(1, int(round(marl_candidate_ratio * population_size)))
+
+    for _ in range(max(1, marl_iterations)):
+        iteration_tours: List[tuple[np.ndarray, float]] = []
+        for _agent in range(max(1, marl_agents)):
+            tour = _marl_construct_tour(
+                distance_matrix,
+                q_table,
+                rng,
+                marl_top_k,
+                marl_epsilon,
+                marl_softmax_beta,
+            )
+            distance = _tour_distance(tour, distance_matrix)
+            iteration_tours.append((tour, distance))
+
+        iteration_tours.sort(key=lambda item: item[1])
+        if not iteration_tours:
+            continue
+
+        iteration_best_tour, iteration_best_distance = iteration_tours[0]
+
+        if iteration_best_distance + 1e-9 < best_distance:
+            best_distance = iteration_best_distance
+            _marl_update_q_table(
+                distance_matrix,
+                q_table,
+                iteration_best_tour,
+                iteration_best_distance,
+                marl_learning_rate,
+                marl_reward,
+            )
+
+        for tour, distance in iteration_tours:
+            if distance <= best_distance + 1e-9 and len(candidate_set) < target:
+                candidate_set.append((tour.copy(), distance))
+
+    candidate_set.sort(key=lambda item: item[1])
+    unique_population: List[np.ndarray] = []
+    seen: Set[Tuple[int, ...]] = set()
+
+    for tour, _distance_val in candidate_set:
+        opt_refined = _two_opt_junction_links(
+            graph,
+            distance_matrix,
+            tour.copy(),
+            5,
+            marl_two_opt_passes,
+        )
+        _append_unique_candidate(unique_population, seen, opt_refined)
+        if len(unique_population) >= population_size:
+            break
+
+        nich_refined = _nich_local_search(graph, distance_matrix, opt_refined.copy())
+        _append_unique_candidate(unique_population, seen, nich_refined)
+        if len(unique_population) >= population_size:
+            break
+
+    return unique_population
 
 
 def _reward_matrix(distance_matrix: np.ndarray) -> np.ndarray:

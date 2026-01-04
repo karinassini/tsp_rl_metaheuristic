@@ -33,8 +33,8 @@ class RLLocalSearchConfig:
 class VNSMainConfig:
 	"""Top-level configuration for running VNS experiments via ``main.py``."""
 
-	instances: List[str] = field(default_factory=lambda: ["gr48.tsp", "ch150.tsp"]) # swiss42.tsp, berlin52.tsp, gr48.tsp, ch150.tsp, gr120.tsp, si175.tsp, pr226.tsp, a280.tsp, pr226.tsp
-	method: List[str] = field(default_factory=lambda: ["rcl", "q_learning", "nearest_neighbor" ]) # q_learning, random , nearest_neighbor
+	instances: List[str] = field(default_factory=lambda: ["swiss42.tsp"]) # swiss42.tsp, berlin52.tsp, gr48.tsp, ch150.tsp, gr120.tsp, si175.tsp, pr226.tsp, a280.tsp, pr226.tsp
+	method: List[str] = field(default_factory=lambda: ["marl", "q_learning", "random" , "nearest_neighbor"]) # q_learning, random , nearest_neighbor, marl
 	start_city: int | None = None
 	iteration_max: Optional[int] = 500
 	max_non_improving_iterations: int = 250
@@ -50,15 +50,15 @@ class VNSMainConfig:
 class GAMainConfig:
 	"""Configuration for running the Genetic Algorithm experiments."""
 
-	instances: List[str] = field(default_factory=lambda: ["eil51.tsp"])
-	repeats: int = 3
+	instances: List[str] = field(default_factory=lambda: ["gr48.tsp"])
+	repeats: int = 30
 	save_dir: Optional[str] = None
 	log_root: str = "outputs/logs/ga"
 	ga_config_kwargs: Dict[str, Any] = field(
 		default_factory=lambda: {
 			"population_size": 100,
 			"max_generations": 5000,
-			"mutation_rate": 0.2,
+			"mutation_rate": 0.1,
 			"crossover_rate": 0.9,
 			"tournament_size": 4,
 			"elitism": True,
@@ -69,16 +69,18 @@ class GAMainConfig:
 			"rank_selection_pressure": 1.7,
 			"truncation_ratio": 0.3,
 			"initialization_method": "marl",
-			"marl_iterations": 5000,
+			"marl_iterations": 10000,
 			"marl_agents": 5,
 			"marl_epsilon": 0.85,
 			"marl_softmax_beta": 2.0,
 			"marl_learning_rate": 0.75,
 			"marl_discount": 0.7,
-			"marl_reward": 1.0,
+			"marl_reward": 1.2,
 			"marl_candidate_ratio": 1.2,
 			"marl_two_opt_passes": 5,
 			"marl_top_k": 3,
 			"log_dir": None,
+			"survivor_selection_method": "best_improves",  # options: "tournament", "best_improves"
+			"crossover_method": "smx"
 		}
 	)

@@ -20,7 +20,7 @@ import numpy as np
 from logging.handlers import QueueHandler, QueueListener
 
 from src.structures.graph import Graph
-from src.solver.initial_solution import nearest_neighbour_tour
+from src.solver.initial_solution import nearest_neighbour_tour, marl_initial_population
 
 
 logger = logging.getLogger(__name__)
@@ -280,12 +280,22 @@ class GeneticTSPSolver:
         method = (self.config.initialization_method or "nearest_random").lower()
         if method == "marl":
             self.logger.info("Initial population method: MARL")
-            population = self._marl_initial_population()
+            population = marl_initial_population(
+                graph=self.graph,
+                rng=self.random,
+                population_size=self.config.population_size,
+                marl_agents=self.config.marl_agents,
+                marl_iterations=self.config.marl_iterations,
+                marl_candidate_ratio=self.config.marl_candidate_ratio,
+                marl_two_opt_passes=self.config.marl_two_opt_passes,
+                marl_top_k=self.config.marl_top_k,
+                marl_reward=self.config.marl_reward,
+                marl_learning_rate=self.config.marl_learning_rate,
+                marl_softmax_beta=self.config.marl_softmax_beta,
+                marl_epsilon=self.config.marl_epsilon,
+            )
             fitness = [self._tour_distance(individual) for individual in population]
             self.logger.info("Initial population created with %d individuals, avg fitness=%.4f", len(population), np.mean(fitness))
-            
-            #self.config.population_size = len(population) # Test
-            #self.logger.info("Initial population size from MARL reset: %d", self.config.population_size)
         else:
             self.logger.info("Initial population method: nearest-random")
             population = self._nearest_random_population()
@@ -334,224 +344,6 @@ class GeneticTSPSolver:
     def _nearest_random_individual(self) -> np.ndarray:
         seed_tour = nearest_neighbour_tour(self.graph)
         return np.asarray(seed_tour[:-1], dtype=int)
-
-    def _marl_candidate_list_limit(self) -> Optional[int]:
-        if self.n_cities <= 200:
-            return max(1, self.n_cities // 4)
-        return 50
-    
-    def _distance_ranked_actions(
-        self,
-        state: int,
-        available: Sequence[int]
-        ) -> List[int]:
-        limit = self.config.marl_top_k
-        candidates = list(available)
-        if not candidates:
-            return []
-        candidates.sort(key=lambda idx: self._distance(state, idx))
-        if limit is None or limit <= 0 or len(candidates) <= limit:
-            return candidates
-        return candidates[:limit]
-    
-    def _marl_initial_population(self) -> List[np.ndarray]:
-        cfg = self.config
-        self.logger.info("Starting MARL-based initial population generation with %d agents for up to %d populations", cfg.marl_agents, cfg.population_size)
-        q_table = np.ones((self.n_cities, self.n_cities), dtype=float)
-        candidate_set: List[tuple[np.ndarray, float]] = []
-        best_distance = float("inf")
-        target = max(1, int(round(cfg.marl_candidate_ratio * cfg.population_size)))
-
-        for _ in range(max(1, cfg.marl_iterations)):
-            iteration_tours: List[tuple[np.ndarray, float]] = []
-            for _agent in range(max(1, cfg.marl_agents)):
-                tour = self._marl_construct_tour(q_table)
-                distance = self._tour_distance(tour)
-                iteration_tours.append((tour, distance))
-
-            iteration_tours.sort(key=lambda item: item[1])
-            if not iteration_tours:
-                continue
-
-            iteration_best_tour, iteration_best_distance = iteration_tours[0]
-
-            if iteration_best_distance + 1e-9 < best_distance:
-                best_distance = iteration_best_distance
-                self._marl_update_q_table(q_table, iteration_best_tour, iteration_best_distance)
-
-            for tour, distance in iteration_tours:
-                if distance  <= best_distance + 1e-9:
-                    candidate_set.append((tour.copy(), distance))
-
-        candidate_set.sort(key=lambda item: item[1])
-        unique_population: List[np.ndarray] = []
-        seen: set[tuple[int, ...]] = set()
-
-        for tour, _distance in candidate_set:
-            opt_refined = self._two_opt_junction_links(tour.copy(), 5)
-            self._append_unique_candidate(unique_population, seen, opt_refined)
-            if len(unique_population) >= self.config.population_size:
-                break
-
-            # nich_refined = self._nich_local_search(opt_refined.copy())
-            # self._append_unique_candidate(unique_population, seen, nich_refined)
-            # if len(unique_population) >= self.config.population_size:
-            #     break
-
-        self.logger.info(
-            "Generated %d MARL tours from %d candidates",
-            len(unique_population),
-            len(candidate_set),
-        )
-        return unique_population
-
-    def _marl_construct_tour(self, q_table: np.ndarray) -> np.ndarray:
-        start = self.random.randrange(self.n_cities)
-        unvisited = set(range(self.n_cities))
-        unvisited.remove(start)
-        tour = [start]
-
-        while unvisited:
-            current = tour[-1]
-            candidate_actions = self._distance_ranked_actions(current, unvisited)
-            
-            # Next action will take in consideration ranked distance candidates
-            action = self._marl_select_action(current, list(candidate_actions), q_table)
-            tour.append(action)
-            unvisited.remove(action)
-
-        return np.asarray(tour, dtype=int)
-
-    def _marl_candidate_actions(
-        self,
-        state: int,
-        available: Sequence[int],
-        q_table: np.ndarray,
-    ) -> List[int]:
-        candidates = list(available)
-        limit = self._marl_candidate_list_limit()
-        if limit is None or limit <= 0 or len(candidates) <= limit:
-            return candidates
-        weights = self._marl_softmax(state, candidates, q_table)
-        ranked = sorted(
-            zip(candidates, weights),
-            key=lambda item: item[1],
-            reverse=True,
-        )
-        return [idx for idx, _weight in ranked[:limit]]
-
-    def _marl_select_action(self, state: int, available: List[int], q_table: np.ndarray) -> int:
-        if not available:
-            return state
-
-        candidate_actions = self._marl_candidate_actions(state, available, q_table)
-
-        if self.random.random() < self.config.marl_epsilon:
-            return candidate_actions[0]
-            #return random.choice(candidate_actions)
-
-        weights = self._marl_softmax(state, candidate_actions, q_table)
-        threshold = self.random.random()
-        cumulative = 0.0
-        for idx, weight in zip(candidate_actions, weights):
-            cumulative += weight
-            if cumulative >= threshold:
-                return idx
-        return candidate_actions[-1]
-
-    def _marl_softmax(self, state: int, available: List[int], q_table: np.ndarray) -> List[float]:
-        beta = max(0.1, self.config.marl_softmax_beta)
-        q_values = np.asarray([q_table[state, idx] for idx in available], dtype=float)
-        inverse_distances = np.asarray(
-            [1.0 / max(self._distance(state, idx), 1e-9) for idx in available],
-            dtype=float,
-        )
-        energy = q_values * np.power(inverse_distances, beta)
-        energy -= float(np.max(energy))
-        exp_values = np.exp(energy)
-        total = float(np.sum(exp_values))
-        if total <= 0:
-            return [1.0 / len(available)] * len(available)
-        return (exp_values / total).tolist()
-
-
-    def _marl_update_q_table(self, q_table: np.ndarray, tour: np.ndarray, tour_distance: float) -> None:
-        #reward = 1.0 / max(tour_distance, 1e-9) # the paper implements something fixed
-        reward = self.config.marl_reward
-        lr = self.config.marl_learning_rate
-        cycle = self._close_tour(tour)
-        for current, nxt in zip(cycle, np.roll(cycle, -1)):
-            old_value = q_table[current, nxt]
-            # Replace the constant‑reward update with standard Q‑learning using your marl_discount
-            q_table[current, nxt] = old_value + lr * reward 
-
-
-    def _two_opt_junction_links(
-        self,
-        tour: np.ndarray,
-        max_junction_swaps: Optional[int] = None,
-    ) -> np.ndarray:
-        """Run 2-opt swaps only on intersecting edges (junction links) per MARL paper."""
-
-        coords = getattr(self.graph, "coords", None)
-        fallback_passes = max(
-            1,
-            int(max_junction_swaps or self.config.marl_two_opt_passes or 1),
-        )
-        if not coords:
-            return self._two_opt_improve(tour, fallback_passes)
-
-        if any(coords[int(node)] is None for node in tour):
-            return self._two_opt_improve(tour, fallback_passes)
-
-        improved = tour.copy()
-        n = len(improved)
-        if n < 4:
-            return improved
-
-        limit = max(1, fallback_passes)
-
-        def orientation(p: tuple[float, float], q: tuple[float, float], r: tuple[float, float]) -> float:
-            return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
-
-        def edges_cross(a_idx: int, b_idx: int, c_idx: int, d_idx: int) -> bool:
-            pa = coords[a_idx]
-            pb = coords[b_idx]
-            pc = coords[c_idx]
-            pd = coords[d_idx]
-            if pa is None or pb is None or pc is None or pd is None:
-                return False
-            o1 = orientation(pa, pb, pc)
-            o2 = orientation(pa, pb, pd)
-            o3 = orientation(pc, pd, pa)
-            o4 = orientation(pc, pd, pb)
-            eps = 1e-9
-            return (o1 * o2 < -eps) and (o3 * o4 < -eps)
-
-        swaps = 0
-        while swaps < limit:
-            improved_this_pass = False
-            for i in range(n):
-                a_idx = int(improved[i])
-                b_idx = int(improved[(i + 1) % n])
-                for j in range(i + 2, n):
-                    if i == 0 and j == n - 1:
-                        continue
-                    c_idx = int(improved[j])
-                    d_idx = int(improved[(j + 1) % n])
-                    if len({a_idx, b_idx, c_idx, d_idx}) < 4:
-                        continue
-                    if edges_cross(a_idx, b_idx, c_idx, d_idx):
-                        improved[i + 1 : j + 1] = improved[i + 1 : j + 1][::-1]
-                        swaps += 1
-                        improved_this_pass = True
-                        break
-                if improved_this_pass or swaps >= limit:
-                    break
-            if not improved_this_pass:
-                break
-        return improved
-    
     def _two_opt_improve(self, tour: np.ndarray, passes: int) -> np.ndarray:
         best = tour
         best_distance = self._tour_distance(best)
@@ -587,85 +379,6 @@ class GeneticTSPSolver:
             return
         population.append(candidate)
         seen.add(key)
-
-    def _nich_local_search(self, tour: np.ndarray) -> np.ndarray:
-        hull = self._convex_hull_indices()
-        if not hull:
-            return tour
-
-        hull_cycle = hull.copy()
-        hull_set = set(hull_cycle)
-        nich_tour = hull_cycle.copy()
-        remaining = [int(node) for node in tour.tolist() if int(node) not in hull_set]
-        if not remaining:
-            return np.asarray(nich_tour, dtype=int)
-
-        for node in remaining:
-            best_pos: Optional[int] = None
-            best_delta = float("inf")
-            cycle_len = len(nich_tour)
-
-            if cycle_len == 0:
-                nich_tour.append(node)
-                continue
-
-            for i in range(cycle_len):
-                a = nich_tour[i]
-                b = nich_tour[(i + 1) % cycle_len] if cycle_len > 1 else nich_tour[0]
-                delta = self._distance(a, node) + self._distance(node, b)
-                if cycle_len > 1:
-                    delta -= self._distance(a, b)
-                if delta < best_delta:
-                    best_delta = delta
-                    best_pos = i + 1
-
-            insert_at = best_pos if best_pos is not None else len(nich_tour)
-            nich_tour.insert(insert_at % (len(nich_tour) + 1), node)
-
-        return np.asarray(nich_tour, dtype=int)
-
-    def _convex_hull_indices(self) -> List[int]:
-        coords = getattr(self.graph, "coords", None)
-        if not coords:
-            return []
-
-        points: List[tuple[float, float, int]] = []
-        for idx, coord in enumerate(coords):
-            if coord is None:
-                continue
-            x, y = coord
-            points.append((float(x), float(y), idx))
-
-        if len(points) <= 1:
-            return [idx for *_ignored, idx in points]
-
-        points.sort(key=lambda item: (item[0], item[1], item[2]))
-
-        def cross(o, a, b):
-            return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
-
-        def build_half(seq):
-            half: List[tuple[float, float, int]] = []
-            for pt in seq:
-                while len(half) >= 2 and cross(half[-2], half[-1], pt) <= 0:
-                    half.pop()
-                half.append(pt)
-            return half
-
-        lower = build_half(points)
-        upper = build_half(reversed(points))
-        hull = lower[:-1] + upper[:-1]
-
-        seen: set[int] = set()
-        ordered_indices: List[int] = []
-        for _, _, idx in hull:
-            if idx in seen:
-                continue
-            ordered_indices.append(idx)
-            seen.add(idx)
-        if not ordered_indices and points:
-            ordered_indices = [points[0][2]]
-        return ordered_indices
 
     def _next_generation(
         self, population: Sequence[np.ndarray], fitness: Sequence[float]
