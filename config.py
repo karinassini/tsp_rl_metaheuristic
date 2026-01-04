@@ -44,7 +44,21 @@ class VNSMainConfig:
 	local_search: List[str] = field(default_factory=lambda: ["VNS_Solver_Q_Learnings", "VNS_Solver"])  # Options: "VNS_Solver", "VNS_Solver_Q_Learnings"
 	q_learning_cfg: QLearningConfig = field(default_factory=QLearningConfig)
 	rl_local_search_cfg: RLLocalSearchConfig = field(default_factory=RLLocalSearchConfig)
-
+	marl_config_kwargs: Dict[str, Any] = field(
+		default_factory=lambda: {
+			"population_size": 100,
+			"marl_iterations": 10000,
+			"marl_agents": 5,
+			"marl_epsilon": 0.85,
+			"marl_softmax_beta": 2.0,
+			"marl_learning_rate": 0.75,
+			"marl_discount": 0.7,
+			"marl_reward": 1.2,
+			"marl_candidate_ratio": 1.2,
+			"marl_two_opt_passes": 5,
+			"marl_top_k": 3,
+		}
+	)
 
 @dataclass
 class GAMainConfig:

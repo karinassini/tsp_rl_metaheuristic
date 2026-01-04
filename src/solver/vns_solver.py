@@ -107,6 +107,7 @@ class VNS_Solver:
             "q_learning_cfg": (
                 asdict(self.q_learning_cfg) if self.q_learning_cfg else None
             ),
+            "marl_params": self.marl_params,
         }
 
     def _stop_logging(self) -> None:
@@ -681,7 +682,7 @@ class VNS_Solver:
                 graph=self.graph,
                 rng=rng,
                 population_size=population_size,
-                marl_agents=int(params.get("marl_agents", 6)),
+                marl_agents=int(params.get("marl_agents", 5)),
                 marl_iterations=int(params.get("marl_iterations", 40)),
                 marl_candidate_ratio=float(params.get("marl_candidate_ratio", 1.5)),
                 marl_two_opt_passes=int(params.get("marl_two_opt_passes", 1)),

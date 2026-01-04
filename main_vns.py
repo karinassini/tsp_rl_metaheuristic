@@ -45,6 +45,7 @@ def test_vns_solver(
     local_search: str = 'VNS_Solver_Q_Learnings',
     q_learning_cfg=None,
     rl_local_search_cfg=None,
+    marl_params=None,
 ):
     """Run a single VNS experiment and persist metrics/plots.
 
@@ -80,6 +81,8 @@ def test_vns_solver(
         "best_known_distance": saver.best_total_distance,
         "timestamp": timestamp,
     }
+    if method.lower() == "marl":
+        solver_kwargs["marl_params"] = marl_params
     if local_searcher is VNS_Solver_Q_Learnings and rl_local_search_cfg is not None:
         solver_kwargs["rl_local_search_cfg"] = rl_local_search_cfg
 
@@ -198,6 +201,7 @@ def main():
                 local_search=local_search,
                 q_learning_cfg=config.q_learning_cfg,
                 rl_local_search_cfg=config.rl_local_search_cfg,
+                marl_params=config.marl_config_kwargs,
             )
 
     # print(f"outputs/solutions/{instance.split('.')[0]}/")

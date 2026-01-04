@@ -39,6 +39,7 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
         operator_failure_limit: int = 10,
         q_learning_cfg: QLearningConfig | None = None,
         rl_local_search_cfg: object | None = None,
+        marl_params: dict | None = None,
         best_known_distance: float | None = None,
         timestamp: str | None = None,
     ):
@@ -56,6 +57,7 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
             max_flip_subsequence_length=max_flip_subsequence_length,
             max_inversion_segment_length=max_inversion_segment_length,
             q_learning_cfg=q_learning_cfg,
+            marl_params=marl_params,
             best_known_distance=best_known_distance,
             timestamp=timestamp,
         )
