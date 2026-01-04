@@ -9,6 +9,7 @@ from src.solver.initial_solution import (
     nearest_neighbour_tour,
     q_learning_tour,
     rcl_nearest_neighbour_tour,
+    marl_initial_population
 )
 from src.solver.vns_solver import VNS_Solver
 
@@ -334,19 +335,18 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
             tour = nearest_neighbour_tour(self.graph, start=seed)
             total_distance = self.tour_distance(tour, self.distance_matrix)
             self.logger.info(
-                "Initial %s tour: %s, distance: %.2f",
-                method_key,
-                tour.tolist(),
-                total_distance,
+                f"Initial {method_key} tour: {tour.tolist()}, distance: {total_distance:.2f}"
             )
             self._record_best_known_hit(float(total_distance), 0)
         elif method_key in {"q_learning", "qlearning", "q-learn"}:
-            tour, full_distance_matrix = q_learning_tour(self.graph, start=start)
+            tour, full_distance_matrix = q_learning_tour(
+                self.graph,
+                start=start,
+                cfg=self.q_learning_cfg,
+            )
             total_distance = self.tour_distance(tour, full_distance_matrix)
             self.logger.info(
-                "Initial q_learning tour: %s, distance: %.2f",
-                tour.tolist(),
-                total_distance,
+                f"Initial q_learning tour: {tour.tolist()}, distance: {total_distance:.2f}"
             )
             self._record_best_known_hit(float(total_distance), 0)
         elif method_key == "random":
@@ -356,9 +356,7 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
             tour = np.array(tour)
             total_distance = self.tour_distance(tour, self.distance_matrix)
             self.logger.info(
-                "Initial random tour: %s, distance: %.2f",
-                tour.tolist(),
-                total_distance,
+                f"Initial random tour: {tour.tolist()}, distance: {total_distance:.2f}"
             )
             self._record_best_known_hit(float(total_distance), 0)
         elif method_key == "rcl":
@@ -368,11 +366,51 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
                 f"Initial RCL tour: {tour.tolist()}, distance: {total_distance:.2f}"
             )
             self._record_best_known_hit(float(total_distance), 0)
+        elif method_key == "marl":
+            params = self.marl_params or {}
+            rng = random.Random(params.get("seed"))
+            population_size = int(params.get("population_size", max(10, self.n_cities)))
+            population = marl_initial_population(
+                graph=self.graph,
+                rng=rng,
+                population_size=population_size,
+                marl_agents=int(params.get("marl_agents", 6)),
+                marl_iterations=int(params.get("marl_iterations", 40)),
+                marl_candidate_ratio=float(params.get("marl_candidate_ratio", 1.5)),
+                marl_two_opt_passes=int(params.get("marl_two_opt_passes", 1)),
+                marl_top_k=params.get("marl_top_k"),
+                marl_reward=float(params.get("marl_reward", 1.0)),
+                marl_learning_rate=float(params.get("marl_learning_rate", 0.4)),
+                marl_softmax_beta=float(params.get("marl_softmax_beta", 2.0)),
+                marl_epsilon=float(params.get("marl_epsilon", 0.15)),
+            )
+            if not population:
+                raise ValueError("MARL initialisation produced no candidates.")
+
+            # Pick the best tour among generated candidates since VNS is single-solution.
+            best_core = min(
+                population,
+                key=lambda t: self.tour_distance(np.append(t, t[0]), self.distance_matrix)
+                if t[0] != t[-1]
+                else self.tour_distance(t, self.distance_matrix),
+            )
+            if best_core[0] != best_core[-1]:
+                best_core = np.append(best_core, best_core[0])
+            tour = best_core
+            total_distance = self.tour_distance(tour, self.distance_matrix)
+            self.logger.info(
+                "Initial MARL tour (best of %d): %s, distance: %.2f",
+                len(population),
+                tour.tolist(),
+                total_distance,
+            )
+            self._record_best_known_hit(float(total_distance), 0)
         else:
             raise ValueError(
                 f"Unknown initialisation method '{self.method}'. "
-                "Supported values: 'greedy', 'nearest_neighbour', 'random', 'q_learning'."
+                "Supported values: 'greedy', 'nearest_neighbour', 'random', 'q_learning', 'marl'."
             )
+
 
         total_distance = float(total_distance)
         self.initial_solution = total_distance

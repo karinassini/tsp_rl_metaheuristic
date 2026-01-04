@@ -16,6 +16,7 @@ from src.solver.initial_solution import (
     nearest_neighbour_tour,
     q_learning_tour,
     rcl_nearest_neighbour_tour,
+    marl_initial_population,
 )
 
 
@@ -35,6 +36,7 @@ class VNS_Solver:
         max_flip_subsequence_length: int = 5,
         max_inversion_segment_length: int = 5,
         q_learning_cfg: QLearningConfig | None = None,
+        marl_params: dict | None = None,
         best_known_distance: float | None = None,
         timestamp: str | None = None,
     ):
@@ -55,6 +57,7 @@ class VNS_Solver:
         self.max_flip_subsequence_length = max(2, max_flip_subsequence_length)
         self.max_inversion_segment_length = max(2, max_inversion_segment_length)
         self.q_learning_cfg = q_learning_cfg
+        self.marl_params = marl_params or {}
         self.best_known_distance = best_known_distance
         self.best_known_hit_iteration: int | None = None
         self.iterations_executed: int = 0
@@ -646,10 +649,49 @@ class VNS_Solver:
                 f"Initial RCL tour: {tour.tolist()}, distance: {total_distance:.2f}"
             )
             self._record_best_known_hit(float(total_distance), 0)
+        elif method_key == "marl":
+            params = self.marl_params or {}
+            rng = random.Random(params.get("seed"))
+            population_size = int(params.get("population_size", max(10, self.n_cities)))
+            population = marl_initial_population(
+                graph=self.graph,
+                rng=rng,
+                population_size=population_size,
+                marl_agents=int(params.get("marl_agents", 6)),
+                marl_iterations=int(params.get("marl_iterations", 40)),
+                marl_candidate_ratio=float(params.get("marl_candidate_ratio", 1.5)),
+                marl_two_opt_passes=int(params.get("marl_two_opt_passes", 1)),
+                marl_top_k=params.get("marl_top_k"),
+                marl_reward=float(params.get("marl_reward", 1.0)),
+                marl_learning_rate=float(params.get("marl_learning_rate", 0.4)),
+                marl_softmax_beta=float(params.get("marl_softmax_beta", 2.0)),
+                marl_epsilon=float(params.get("marl_epsilon", 0.15)),
+            )
+            if not population:
+                raise ValueError("MARL initialisation produced no candidates.")
+
+            # Pick the best tour among generated candidates since VNS is single-solution.
+            best_core = min(
+                population,
+                key=lambda t: self.tour_distance(np.append(t, t[0]), self.distance_matrix)
+                if t[0] != t[-1]
+                else self.tour_distance(t, self.distance_matrix),
+            )
+            if best_core[0] != best_core[-1]:
+                best_core = np.append(best_core, best_core[0])
+            tour = best_core
+            total_distance = self.tour_distance(tour, self.distance_matrix)
+            self.logger.info(
+                "Initial MARL tour (best of %d): %s, distance: %.2f",
+                len(population),
+                tour.tolist(),
+                total_distance,
+            )
+            self._record_best_known_hit(float(total_distance), 0)
         else:
             raise ValueError(
                 f"Unknown initialisation method '{self.method}'. "
-                "Supported values: 'greedy', 'nearest_neighbour', 'random', 'q_learning'."
+                "Supported values: 'greedy', 'nearest_neighbour', 'random', 'q_learning', 'marl'."
             )
 
 
