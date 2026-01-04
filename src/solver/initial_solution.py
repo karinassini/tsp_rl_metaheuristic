@@ -16,6 +16,7 @@ import numpy as np
 from config import QLearningConfig
 from src.structures.graph import Graph
 
+
 # MARL helpers for GA initialisation
 def _distance(distance_matrix: np.ndarray, i: int, j: int) -> float:
     lower = min(i, j)
@@ -43,7 +44,9 @@ def _append_unique_candidate(
     seen.add(key)
 
 
-def _two_opt_improve(distance_matrix: np.ndarray, tour: np.ndarray, passes: int) -> np.ndarray:
+def _two_opt_improve(
+    distance_matrix: np.ndarray, tour: np.ndarray, passes: int
+) -> np.ndarray:
     best = tour
     best_distance = _tour_distance(best, distance_matrix)
     for _ in range(max(1, passes)):
@@ -90,7 +93,9 @@ def _two_opt_junction_links(
 
     limit = max(1, fallback_passes)
 
-    def orientation(p: tuple[float, float], q: tuple[float, float], r: tuple[float, float]) -> float:
+    def orientation(
+        p: tuple[float, float], q: tuple[float, float], r: tuple[float, float]
+    ) -> float:
         return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
 
     def edges_cross(a_idx: int, b_idx: int, c_idx: int, d_idx: int) -> bool:
@@ -176,7 +181,9 @@ def _convex_hull_indices(graph: Graph) -> List[int]:
     return ordered_indices
 
 
-def _nich_local_search(graph: Graph, distance_matrix: np.ndarray, tour: np.ndarray) -> np.ndarray:
+def _nich_local_search(
+    graph: Graph, distance_matrix: np.ndarray, tour: np.ndarray
+) -> np.ndarray:
     hull = _convex_hull_indices(graph)
     if not hull:
         return tour
@@ -200,7 +207,9 @@ def _nich_local_search(graph: Graph, distance_matrix: np.ndarray, tour: np.ndarr
         for i in range(cycle_len):
             a = nich_tour[i]
             b = nich_tour[(i + 1) % cycle_len] if cycle_len > 1 else nich_tour[0]
-            delta = _distance(distance_matrix, a, node) + _distance(distance_matrix, node, b)
+            delta = _distance(distance_matrix, a, node) + _distance(
+                distance_matrix, node, b
+            )
             if cycle_len > 1:
                 delta -= _distance(distance_matrix, a, b)
             if delta < best_delta:
@@ -535,7 +544,11 @@ def _q_learning(
 
     epsilon = cfg.epsilon
     previous_snapshot: Optional[np.ndarray] = None
-    monitor_interval = cfg.monitor_interval if cfg.monitor_interval and cfg.monitor_interval > 0 else None
+    monitor_interval = (
+        cfg.monitor_interval
+        if cfg.monitor_interval and cfg.monitor_interval > 0
+        else None
+    )
     best_monitored_cost = float("inf")
     best_q_snapshot: Optional[np.ndarray] = None
     reset_interval = (
@@ -543,9 +556,11 @@ def _q_learning(
         if cfg.epsilon_reset_interval and cfg.epsilon_reset_interval > 0
         else None
     )
-    reset_value = cfg.epsilon_reset_value if cfg.epsilon_reset_value is not None else cfg.epsilon
+    reset_value = (
+        cfg.epsilon_reset_value if cfg.epsilon_reset_value is not None else cfg.epsilon
+    )
 
-    for episode in range(cfg.episodes): # how many episodes
+    for episode in range(cfg.episodes):  # how many episodes
         start = random.randrange(n)
         current = start
         unvisited = set(range(n))
@@ -553,7 +568,7 @@ def _q_learning(
         while unvisited:
             actions = list(unvisited)
             action = _epsilon_greedy_action(q_table[current], actions, epsilon)
-            reward = rewards[current, action] # next city to visit
+            reward = rewards[current, action]  # next city to visit
             unvisited.remove(action)
             next_state = action
             max_future = (
@@ -740,15 +755,23 @@ def rcl_nearest_neighbour_tour(
         # cost is within a factor of the best (if threshold is provided)
         candidates.sort(key=lambda pair: pair[1])
         if distance_threshold is not None:
-            rcl = [city for city, cost in candidates if cost <= best_cost * distance_threshold]
+            rcl = [
+                city
+                for city, cost in candidates
+                if cost <= best_cost * distance_threshold
+            ]
         elif alpha is not None:
             bounded_alpha = max(0.0, min(1.0, alpha))
             cutoff = best_cost + bounded_alpha * (worst_cost - best_cost)
             rcl = [city for city, cost in candidates if cost <= cutoff]
         else:
-            rcl = [city for city, _ in candidates[: max(1, min(rcl_size, len(candidates)))]]
+            rcl = [
+                city for city, _ in candidates[: max(1, min(rcl_size, len(candidates)))]
+            ]
 
-            rcl = [city for city, _ in candidates[: max(1, min(rcl_size, len(candidates)))]]
+            rcl = [
+                city for city, _ in candidates[: max(1, min(rcl_size, len(candidates)))]
+            ]
             # Ensure we always have at least one candidate to choose from.
             rcl = [candidates[0][0]]
 
@@ -759,6 +782,7 @@ def rcl_nearest_neighbour_tour(
 
     tour.append(start_city)
     return np.asarray(tour, dtype=int)
+
 
 def nearest_neighbour_tour(graph: Graph, start: Optional[int] = None) -> np.ndarray:
     """Construct a TSP tour using the Nearest Neighbour heuristic.

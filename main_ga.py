@@ -40,12 +40,15 @@ def _plot_learning_iterations_curve(
     std_distance = stdev(distances) if len(distances) > 1 else 0.0
     avg_runtime = mean(runtimes)
 
+    # Build a smooth-ish curve by sorting runs by runtime and connecting them.
+    ordered = sorted(zip(runtimes, distances), key=lambda t: t[0])
+    xs, ys = zip(*ordered)
+
     os.makedirs(save_dir, exist_ok=True)
     plt.figure(figsize=(6, 4))
-    # Scatter every run (runtime on x, distance on y) and annotate with runtime.
-    plt.scatter(runtimes, distances, color="dimgray", alpha=0.8, label="Runs")
-    for x, y in zip(runtimes, distances):
-        plt.text(x, y + 0.3, f"{x:.2f}s", ha="center", va="bottom", fontsize=8, color="dimgray")
+    plt.plot(xs, ys, color="dimgray", linewidth=1.6, marker="o", alpha=0.9, label="Runs (sorted by runtime)")
+    for x, y in ordered:
+        plt.text(x, y + 0.25, f"{x:.2f}s", ha="center", va="bottom", fontsize=8, color="dimgray")
 
     # Highlight the aggregate with an error bar for distance std-dev.
     plt.errorbar(

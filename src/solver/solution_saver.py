@@ -25,7 +25,11 @@ class SolutionSaver:
                 best_data = json.load(f)
             entry = best_data.get(self.instance_name)
             if isinstance(entry, dict):
-                self.best_total_distance = float(entry.get("value")) if entry.get("value") is not None else None
+                self.best_total_distance = (
+                    float(entry.get("value"))
+                    if entry.get("value") is not None
+                    else None
+                )
             elif isinstance(entry, list) and entry:
                 first = entry[0]
                 if isinstance(first, dict) and first.get("value") is not None:
@@ -49,7 +53,9 @@ class SolutionSaver:
             "initial_population_std_distance": init_std,
         }
 
-        file_path = f"{self.save_dir}/{timestamp}_solution_{os.getpid()}_{id(self)}.json"
+        file_path = (
+            f"{self.save_dir}/{timestamp}_solution_{os.getpid()}_{id(self)}.json"
+        )
         with open(file_path, "w") as f:
             json.dump(data, f, indent=4)
         print(f"Solution saved to {file_path}")
@@ -125,9 +131,9 @@ class VNSSummaryTracker:
     """Track repeated VNS runs and export consolidated metrics and plots."""
 
     def __init__(self) -> None:
-        self._history: Dict[
-            Tuple[str, str, int, str], List[Dict[str, Any]]
-        ] = defaultdict(list)
+        self._history: Dict[Tuple[str, str, int, str], List[Dict[str, Any]]] = (
+            defaultdict(list)
+        )
         self._summary_cache: Dict[
             str, Dict[Tuple[str, str, int, str], Dict[str, Any]]
         ] = defaultdict(dict)
@@ -203,7 +209,8 @@ class VNSSummaryTracker:
             if entry.get("iteration_first_reach") is not None
         ]
         start_city_values = [
-            entry.get("start_city_initialization") for entry in history
+            entry.get("start_city_initialization")
+            for entry in history
             if "start_city_initialization" in entry
         ]
         last_start_city = start_city_values[-1] if start_city_values else None
@@ -241,9 +248,9 @@ class VNSSummaryTracker:
             "best_total_distance": best_total,
             "mean_distance_to_best": mean_distance_to_best,
             "mean_distance_to_best_pct": mean_distance_to_best_pct,
-            "mean_iteration_first_reach": mean(iteration_hits)
-            if iteration_hits
-            else None,
+            "mean_iteration_first_reach": (
+                mean(iteration_hits) if iteration_hits else None
+            ),
             "mean_distance_to_optimal": mean_distance_to_optimal,
             "mean_distance_to_optimal_pct": mean_distance_to_optimal_pct,
             "best_known_total_distance": best_known,
@@ -284,7 +291,7 @@ class VNSSummaryTracker:
             "best_route",
             "best_exploration_time",
             "best_exploitation_time",
-            "solver"
+            "solver",
         ]
 
         csv_filename = f"{instance_name}_{method}_summary.csv"
@@ -510,7 +517,9 @@ class VNSSummaryTracker:
             probabilities = (np.arange(1, success_count + 1) - 0.5) / total_runs
             if success_count > 1:
                 point_count = max(success_count * 10, 200)
-                smooth_times = np.linspace(sorted_times[0], sorted_times[-1], point_count)
+                smooth_times = np.linspace(
+                    sorted_times[0], sorted_times[-1], point_count
+                )
                 smooth_prob = np.interp(smooth_times, sorted_times, probabilities)
             else:
                 smooth_times = sorted_times

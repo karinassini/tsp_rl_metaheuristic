@@ -54,7 +54,9 @@ class GeneticAlgorithmConfig:
     marl_top_k: Optional[int] = 5
     log_dir: Optional[str] = None
     smx_max_segment_length: Optional[int] = None
-    survivor_selection_method: str = "tournament"  # options: "tournament", "best_improves"
+    survivor_selection_method: str = (
+        "tournament"  # options: "tournament", "best_improves"
+    )
 
 
 class GeneticTSPSolver:
@@ -100,7 +102,8 @@ class GeneticTSPSolver:
             logs_dir = os.path.join(self.save_dir, "logs")
             os.makedirs(logs_dir, exist_ok=True)
             log_path = os.path.join(
-                logs_dir, f"ga_steps_{self.timestamp}_{self.config.initialization_method}_{os.getpid()}_{id(self)}.log"
+                logs_dir,
+                f"ga_steps_{self.timestamp}_{self.config.initialization_method}_{os.getpid()}_{id(self)}.log",
             )
 
         log_dir = self.config.log_dir
@@ -108,7 +111,6 @@ class GeneticTSPSolver:
         if log_dir:
             os.makedirs(log_dir, exist_ok=True)
             log_path = os.path.join(log_dir, filename)
-
 
         self.logger = logging.getLogger(f"ga_solver.{self.timestamp}.{id(self)}")
         self.logger.setLevel(logging.INFO)
@@ -133,15 +135,19 @@ class GeneticTSPSolver:
     def run(self) -> Tuple[List[int], float, List[dict], float]:
         """Execute the genetic algorithm and return the best tour found."""
         try:
-            
+
             start_time = time.perf_counter()
             population = self._create_initial_population()
             elapsed = time.perf_counter() - start_time
             self.logger.info("Initial population generated in %.4f seconds", elapsed)
 
             fitness = [self._tour_distance(individual) for individual in population]
-            self.logger.info("Initial population created with %d individuals, avg fitness=%.4f", len(population), np.mean(fitness))
-            
+            self.logger.info(
+                "Initial population created with %d individuals, avg fitness=%.4f",
+                len(population),
+                np.mean(fitness),
+            )
+
             self.logger.info("Fitness values: %s", fitness)
             best_idx = int(np.argmin(fitness))
             best_tour = population[best_idx]
@@ -295,13 +301,17 @@ class GeneticTSPSolver:
                 marl_epsilon=self.config.marl_epsilon,
             )
             fitness = [self._tour_distance(individual) for individual in population]
-            self.logger.info("Initial population created with %d individuals, avg fitness=%.4f", len(population), np.mean(fitness))
+            self.logger.info(
+                "Initial population created with %d individuals, avg fitness=%.4f",
+                len(population),
+                np.mean(fitness),
+            )
         else:
             self.logger.info("Initial population method: nearest-random")
             population = self._nearest_random_population()
 
         increase_pop = False
-        if increase_pop: 
+        if increase_pop:
             population_method = population.copy()
             seen: set[tuple[int, ...]] = set()
             unique_population: List[np.ndarray] = []
@@ -309,11 +319,16 @@ class GeneticTSPSolver:
                 self._append_unique_candidate(unique_population, seen, individual)
             population = unique_population
 
-            assert len(population_method) == len(unique_population), "Initial population uniqueness check failed."
+            assert len(population_method) == len(
+                unique_population
+            ), "Initial population uniqueness check failed."
 
             attempts = 0
             max_attempts = max(10 * self.config.population_size, 100)
-            while len(population) < self.config.population_size and attempts < max_attempts:
+            while (
+                len(population) < self.config.population_size
+                and attempts < max_attempts
+            ):
                 attempts += 1
                 candidate = self._nearest_random_individual()
                 before = len(population)
@@ -322,16 +337,24 @@ class GeneticTSPSolver:
                     continue
 
             if population:
-                fitness_snapshot = [self._tour_distance(individual) for individual in population]
+                fitness_snapshot = [
+                    self._tour_distance(individual) for individual in population
+                ]
                 mean_distance = float(np.mean(fitness_snapshot))
-                std_distance = float(np.std(fitness_snapshot)) if len(fitness_snapshot) > 1 else 0.0
+                std_distance = (
+                    float(np.std(fitness_snapshot))
+                    if len(fitness_snapshot) > 1
+                    else 0.0
+                )
                 self.logger.info(
                     "Initial population mean distance: %.4f (std=%.4f)",
                     mean_distance,
                     std_distance,
                 )
 
-            self.logger.info("Initial population size after padding: %d", len(population))
+            self.logger.info(
+                "Initial population size after padding: %d", len(population)
+            )
         else:
             self.config.population_size = len(population)
             self.logger.info("Initial population size: %d", len(population))
@@ -344,6 +367,7 @@ class GeneticTSPSolver:
     def _nearest_random_individual(self) -> np.ndarray:
         seed_tour = nearest_neighbour_tour(self.graph)
         return np.asarray(seed_tour[:-1], dtype=int)
+
     def _two_opt_improve(self, tour: np.ndarray, passes: int) -> np.ndarray:
         best = tour
         best_distance = self._tour_distance(best)
@@ -416,9 +440,7 @@ class GeneticTSPSolver:
 
             if len(new_population) < self.config.population_size:
                 new_population.append(child2)
-                new_fitness.append(
-                    self._fitness_with_cache(child2, fitness_cache)
-                )
+                new_fitness.append(self._fitness_with_cache(child2, fitness_cache))
 
         return new_population, new_fitness
 
@@ -481,8 +503,7 @@ class GeneticTSPSolver:
         sorted_indices = sorted(range(n), key=lambda idx: fitness[idx])
         denom = n - 1 if n > 1 else 1
         probabilities = [
-            (1.0 / n) * (sp - (2 * sp - 2) * (rank / denom))
-            for rank in range(n)
+            (1.0 / n) * (sp - (2 * sp - 2) * (rank / denom)) for rank in range(n)
         ]
         choice = self._choose_index_by_prob(probabilities)
         return population[sorted_indices[choice]].copy()
@@ -691,7 +712,11 @@ class GeneticTSPSolver:
             parent_index = 1 - parent_index  # alternate parents for the next segment
 
             # If nothing was inserted and both parents are spent, leave the loop.
-            if inserted_this_round == 0 and parent_positions[0] >= size and parent_positions[1] >= size:
+            if (
+                inserted_this_round == 0
+                and parent_positions[0] >= size
+                and parent_positions[1] >= size
+            ):
                 break
 
         # Fill any remaining slots with unseen genes in parent order (fallback completion).
@@ -757,7 +782,9 @@ class GeneticTSPSolver:
         try:
             self._queue_listener.stop()
         finally:
-            for handler in getattr(self._queue_listener, "handlers", ()):  # pragma: no branch
+            for handler in getattr(
+                self._queue_listener, "handlers", ()
+            ):  # pragma: no branch
                 try:
                     handler.close()
                 except Exception:

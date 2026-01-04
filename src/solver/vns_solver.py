@@ -61,16 +61,21 @@ class VNS_Solver:
         self.best_known_distance = best_known_distance
         self.best_known_hit_iteration: int | None = None
         self.iterations_executed: int = 0
-        self.timestamp = timestamp if timestamp is not None else time.strftime("%Y%m%d_%H%M%S")
+        self.timestamp = (
+            timestamp if timestamp is not None else time.strftime("%Y%m%d_%H%M%S")
+        )
 
         if self.save_dir:
             logs_dir = os.path.join(self.save_dir, "logs")
             os.makedirs(logs_dir, exist_ok=True)
             log_path = os.path.join(
-                logs_dir, f"vns_steps_{timestamp}_{self.method}_{os.getpid()}_{id(self)}.log"
+                logs_dir,
+                f"vns_steps_{timestamp}_{self.method}_{os.getpid()}_{id(self)}.log",
             )
         else:
-            log_path = f"vns_steps_{self.timestamp}_{self.method}_{os.getpid()}_{id(self)}.log"
+            log_path = (
+                f"vns_steps_{self.timestamp}_{self.method}_{os.getpid()}_{id(self)}.log"
+            )
         self.logger = logging.getLogger(f"vns_solver.{self.timestamp}.{id(self)}")
         self.logger.setLevel(logging.INFO)
         self.logger.propagate = False
@@ -99,7 +104,9 @@ class VNS_Solver:
             "max_flip_subsequence_length": self.max_flip_subsequence_length,
             "max_inversion_segment_length": self.max_inversion_segment_length,
             "best_known_distance": self.best_known_distance,
-            "q_learning_cfg": asdict(self.q_learning_cfg) if self.q_learning_cfg else None,
+            "q_learning_cfg": (
+                asdict(self.q_learning_cfg) if self.q_learning_cfg else None
+            ),
         }
 
     def _stop_logging(self) -> None:
@@ -109,7 +116,9 @@ class VNS_Solver:
         try:
             self._queue_listener.stop()
         finally:
-            for handler in getattr(self._queue_listener, "handlers", ()):  # pragma: no branch
+            for handler in getattr(
+                self._queue_listener, "handlers", ()
+            ):  # pragma: no branch
                 try:
                     handler.close()
                 except Exception:  # pragma: no cover - best effort clean-up
@@ -327,10 +336,14 @@ class VNS_Solver:
                 city_j = core[j]
 
                 prev_i = core[i - 1] if i > 0 else (core[-1] if is_closed else None)
-                next_i = core[(i + 1) % length] if (is_closed or i + 1 < length) else None
+                next_i = (
+                    core[(i + 1) % length] if (is_closed or i + 1 < length) else None
+                )
 
                 prev_j = core[j - 1] if j > 0 else (core[-1] if is_closed else None)
-                next_j = core[(j + 1) % length] if (is_closed or j + 1 < length) else None
+                next_j = (
+                    core[(j + 1) % length] if (is_closed or j + 1 < length) else None
+                )
 
                 adjacent = j == i + 1
                 if adjacent:
@@ -406,7 +419,9 @@ class VNS_Solver:
                     next_new = core_removed[insert_idx % reduced_len]
                 else:
                     prev_new = core_removed[insert_idx - 1] if insert_idx > 0 else None
-                    next_new = core_removed[insert_idx] if insert_idx < reduced_len else None
+                    next_new = (
+                        core_removed[insert_idx] if insert_idx < reduced_len else None
+                    )
 
                 insertion_delta = 0.0
                 if prev_new is not None and next_new is not None:
@@ -446,12 +461,15 @@ class VNS_Solver:
         core = tour[:-1] if is_closed else tour
         indices = list(range(1, length))
         all_combinations = list(itertools.combinations(indices, 4))
-        selected_combination = random.sample(all_combinations, int(len(all_combinations)*min(1, max_checks / len(all_combinations))))
+        selected_combination = random.sample(
+            all_combinations,
+            int(len(all_combinations) * min(1, max_checks / len(all_combinations))),
+        )
 
         # We keep sampling unique quadruples until we reach the configured limit.
         while selected_combination:
             a, b, c, d = sorted(selected_combination.pop())
-            
+
             prev_a = core[a - 1]
             head_s2 = core[a]
             tail_s2 = core[b - 1]
@@ -544,8 +562,12 @@ class VNS_Solver:
                 else:
                     next_city = None
 
-                removed = edge_cost(prev_city, first_city) + edge_cost(last_city, next_city)
-                added = edge_cost(prev_city, last_city) + edge_cost(first_city, next_city)
+                removed = edge_cost(prev_city, first_city) + edge_cost(
+                    last_city, next_city
+                )
+                added = edge_cost(prev_city, last_city) + edge_cost(
+                    first_city, next_city
+                )
                 delta = added - removed
 
                 if delta < 0:
@@ -570,7 +592,9 @@ class VNS_Solver:
         remainder = np.concatenate((core[:start], core[end:]))
 
         insert_idx = random.randrange(1, remainder.size + 1)
-        new_core = np.concatenate((remainder[:insert_idx], segment, remainder[insert_idx:]))
+        new_core = np.concatenate(
+            (remainder[:insert_idx], segment, remainder[insert_idx:])
+        )
         if tour[0] == tour[-1]:
             new_core = np.concatenate((new_core, [new_core[0]]))
         return new_core
@@ -673,9 +697,11 @@ class VNS_Solver:
             # Pick the best tour among generated candidates since VNS is single-solution.
             best_core = min(
                 population,
-                key=lambda t: self.tour_distance(np.append(t, t[0]), self.distance_matrix)
-                if t[0] != t[-1]
-                else self.tour_distance(t, self.distance_matrix),
+                key=lambda t: (
+                    self.tour_distance(np.append(t, t[0]), self.distance_matrix)
+                    if t[0] != t[-1]
+                    else self.tour_distance(t, self.distance_matrix)
+                ),
             )
             if best_core[0] != best_core[-1]:
                 best_core = np.append(best_core, best_core[0])
@@ -693,7 +719,6 @@ class VNS_Solver:
                 f"Unknown initialisation method '{self.method}'. "
                 "Supported values: 'greedy', 'nearest_neighbour', 'random', 'q_learning', 'marl'."
             )
-
 
         total_distance = float(total_distance)
         self.initial_solution = total_distance
@@ -720,7 +745,9 @@ class VNS_Solver:
                     time_end = time.time()
                     exploration_time = time_end - time_start
                     total_exploration_time += exploration_time
-                    shaken_distance = self.tour_distance(tour_from_shaking, self.distance_matrix)
+                    shaken_distance = self.tour_distance(
+                        tour_from_shaking, self.distance_matrix
+                    )
                     self.logger.info(
                         "Shaking phase completed in %.4f seconds (distance %.2f)",
                         exploration_time,
@@ -728,7 +755,9 @@ class VNS_Solver:
                     )
 
                     time_start = time.time()
-                    new_tour, new_distance = self.local_search(tour_from_shaking, shaken_distance)
+                    new_tour, new_distance = self.local_search(
+                        tour_from_shaking, shaken_distance
+                    )
                     time_end = time.time()
                     exploitation_time = time_end - time_start
                     total_exploitation_time += exploitation_time
@@ -740,7 +769,9 @@ class VNS_Solver:
 
                     old_distance = self.tour_distance(tour, self.distance_matrix)
                     self.logger.info(
-                        "Old distance: %.2f, New distance: %.2f", old_distance, new_distance
+                        "Old distance: %.2f, New distance: %.2f",
+                        old_distance,
+                        new_distance,
                     )
 
                     if new_distance < old_distance:
@@ -761,7 +792,8 @@ class VNS_Solver:
                         continue
                     else:
                         self.logger.info(
-                            "No improvement at k=%d. Moving to the next neighbourhood.", k
+                            "No improvement at k=%d. Moving to the next neighbourhood.",
+                            k,
                         )
                         k += 1
 
@@ -775,10 +807,7 @@ class VNS_Solver:
                         consecutive_non_improving_iterations,
                         non_improve_limit,
                     )
-                    if (
-                        consecutive_non_improving_iterations
-                        >= non_improve_limit
-                    ):
+                    if consecutive_non_improving_iterations >= non_improve_limit:
                         self.logger.info(
                             "Terminating search after %d consecutive non-improving iterations.",
                             consecutive_non_improving_iterations,
