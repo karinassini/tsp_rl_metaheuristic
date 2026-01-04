@@ -38,7 +38,7 @@ class GeneticAlgorithmConfig:
     max_generations: int = 300
     stagnation_limit: Optional[int] = None
     selection_method: str = "roulette"
-    crossover_method: str = "smx"
+    crossover_method: str = "smx"  # options: "smx", "ordered", "er"
     rank_selection_pressure: float = 1.7
     truncation_ratio: float = 0.3
     initialization_method: str = "marl"  # Options: "nearest_random", "marl"
@@ -650,6 +650,7 @@ class GeneticTSPSolver:
         Supported methods:
         - "smx": sequential mixing crossover (default)
         - "ordered": ordered crossover (first child)
+        - "er": edge recombination crossover
         """
 
         method = (self.config.crossover_method or "smx").lower()
@@ -658,8 +659,10 @@ class GeneticTSPSolver:
         if method == "ordered":
             child, _ = self._ordered_crossover(parent1, parent2)
             return child
+        if method == "er":
+            return self._edge_recombination_crossover(parent1, parent2)
         raise ValueError(
-            f"Unknown crossover_method '{self.config.crossover_method}'. Supported: smx, ordered."
+            f"Unknown crossover_method '{self.config.crossover_method}'. Supported: smx, ordered, er."
         )
 
     def _smx_crossover(self, parent1: np.ndarray, parent2: np.ndarray) -> np.ndarray:
@@ -738,6 +741,61 @@ class GeneticTSPSolver:
             raise ValueError("SMX crossover failed to construct a valid child tour")
 
         return offspring
+
+    def _edge_recombination_crossover(
+        self, parent1: np.ndarray, parent2: np.ndarray
+    ) -> np.ndarray:
+        """Edge Recombination crossover (ER) preserving parent edges when possible."""
+
+        size = len(parent1)
+        edge_map: dict[int, set[int]] = {int(city): set() for city in parent1}
+
+        def add_edge(a: int, b: int) -> None:
+            edge_map.setdefault(a, set()).add(b)
+            edge_map.setdefault(b, set()).add(a)
+
+        for parent in (parent1, parent2):
+            for idx, city in enumerate(parent):
+                c = int(city)
+                left = int(parent[(idx - 1) % size])
+                right = int(parent[(idx + 1) % size])
+                add_edge(c, left)
+                add_edge(c, right)
+
+        start_city = self.random.choice([int(parent1[0]), int(parent2[0])])
+        child: list[int] = []
+        unvisited: set[int] = set(int(c) for c in parent1)
+        current = start_city
+
+        while len(child) < size:
+            child.append(current)
+            unvisited.discard(current)
+
+            for neighbors in edge_map.values():
+                neighbors.discard(current)
+
+            if not unvisited:
+                break
+
+            neighbors = [n for n in edge_map.get(current, set()) if n in unvisited]
+            if neighbors:
+                min_degree = None
+                candidates: list[int] = []
+                for n in neighbors:
+                    deg = len(edge_map.get(n, set()))
+                    if (min_degree is None) or (deg < min_degree):
+                        min_degree = deg
+                        candidates = [n]
+                    elif deg == min_degree:
+                        candidates.append(n)
+                current = self.random.choice(candidates)
+            else:
+                current = self.random.choice(list(unvisited))
+
+        if len(child) != size:
+            raise ValueError("ER crossover failed to construct a valid child tour")
+
+        return np.asarray(child, dtype=int)
 
     def _swap_mutation(self, individual: np.ndarray) -> None:
         i, j = sorted(self.random.sample(range(len(individual)), 2))
