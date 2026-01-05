@@ -33,7 +33,7 @@ class RLLocalSearchConfig:
 class VNSMainConfig:
 	"""Top-level configuration for running VNS experiments via ``main.py``."""
 
-	instances: List[str] = field(default_factory=lambda: ["swiss42.tsp"]) # swiss42.tsp, berlin52.tsp, gr48.tsp, ch150.tsp, gr120.tsp, si175.tsp, pr226.tsp, a280.tsp, pr226.tsp
+	instances: List[str] = field(default_factory=lambda: ["ch150.tsp"]) # swiss42.tsp, berlin52.tsp, gr48.tsp, ch150.tsp, gr120.tsp, si175.tsp, pr226.tsp, a280.tsp, pr226.tsp
 	method: List[str] = field(default_factory=lambda: ["marl", "q_learning", "random" , "nearest_neighbor"]) # q_learning, random , nearest_neighbor, marl
 	start_city: int | None = None
 	iteration_max: Optional[int] = 500
@@ -64,7 +64,8 @@ class VNSMainConfig:
 class GAMainConfig:
 	"""Configuration for running the Genetic Algorithm experiments."""
 
-	instances: List[str] = field(default_factory=lambda: ["gr48.tsp"])
+	instances: List[str] = field(default_factory=lambda: ["eil51.tsp"])
+	ga_solver: str = "standard"  # options: "standard" (fixed crossover), "q_learning" (learned crossover selection)
 	repeats: int = 30
 	save_dir: Optional[str] = None
 	log_root: str = "outputs/logs/ga"
@@ -95,6 +96,6 @@ class GAMainConfig:
 			"marl_top_k": 3,
 			"log_dir": None,
 			"survivor_selection_method": "best_improves",  # options: "tournament", "best_improves"
-			"crossover_method": "smx"
+			"crossover_method": "er" #er, smx
 		}
 	)

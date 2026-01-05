@@ -21,6 +21,10 @@ if src_dir not in sys.path:
 from config import GAMainConfig
 from src.structures.graph import Graph
 from src.solver.genetic_algorithm import GeneticTSPSolver, GeneticAlgorithmConfig
+from src.solver.genetic_algorithm_q_learning import (
+    GeneticTSPSolverQLearning,
+    GeneticAlgorithmQLearningConfig,
+)
 from src.solver.solution_saver import SolutionSaver, VNSSummaryTracker
 
 SUMMARY_TRACKER = VNSSummaryTracker()
@@ -99,7 +103,12 @@ def _plot_learning_iterations_curve(
     print(f"Saved average distance vs. runtime plot to {plot_path}")
 
 
-def _prepare_ga_config(base_kwargs: dict, log_dir: str | None, run_idx: int) -> GeneticAlgorithmConfig:
+def _prepare_ga_config(
+    base_kwargs: dict,
+    log_dir: str | None,
+    run_idx: int,
+    solver_kind: str,
+):
     """Build a GA config for the current run, injecting log dir and per-run seed tweaks."""
     kwargs = dict(base_kwargs or {})
     if log_dir:
@@ -107,7 +116,12 @@ def _prepare_ga_config(base_kwargs: dict, log_dir: str | None, run_idx: int) -> 
     base_seed = kwargs.get("seed")
     if base_seed is not None:
         kwargs["seed"] = base_seed + run_idx
-    return GeneticAlgorithmConfig(**kwargs)
+
+    if solver_kind == "q_learning":
+        return GeneticAlgorithmQLearningConfig(**kwargs)
+    if solver_kind == "standard":
+        return GeneticAlgorithmConfig(**kwargs)
+    raise ValueError("solver_kind must be 'standard' or 'q_learning'.")
 
 
 def _build_log_dir(config: GAMainConfig, instance_name: str, init_method: str, current_timestamp: str, run_idx: int) -> str | None:
@@ -131,19 +145,28 @@ def run_ga_experiments(graph: Graph, instance: str, config: GAMainConfig, curren
     aggregate_save_root: str | None = None
     plot_series_key = "ga"
 
+    solver_kind = (getattr(config, "ga_solver", "standard") or "standard").lower()
+    solver_lookup = {
+        "standard": GeneticTSPSolver,
+        "q_learning": GeneticTSPSolverQLearning,
+    }
+    if solver_kind not in solver_lookup:
+        raise ValueError("GAMainConfig.ga_solver must be 'standard' or 'q_learning'.")
+    solver_cls = solver_lookup[solver_kind]
+
     for run_idx in range(config.repeats):
         run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         placeholder_init = base_kwargs.get("initialization_method", "nearest_random")
         print(f"Starting GA run {run_idx + 1}/{config.repeats} | instance={instance_name} | init={placeholder_init}")
         #log_dir = _build_log_dir(config, instance_name, placeholder_init, current_timestamp, run_idx)
-        solver_config = _prepare_ga_config(base_kwargs, None, run_idx)
+        solver_config = _prepare_ga_config(base_kwargs, None, run_idx, solver_kind)
         init_method = solver_config.initialization_method
 
         save_root = config.save_dir or os.path.join(
             "outputs",
             "solutions",
             instance_name,
-            "GeneticTSPSolver",
+            solver_cls.__name__,
             init_method,
             current_timestamp,
         )
@@ -151,7 +174,7 @@ def run_ga_experiments(graph: Graph, instance: str, config: GAMainConfig, curren
         aggregate_save_root = save_root
         saver = SolutionSaver(instance_name=instance_name, save_dir=save_root)
 
-        solver = GeneticTSPSolver(
+        solver = solver_cls(
             graph,
             save_dir=save_root,
             config=solver_config,
