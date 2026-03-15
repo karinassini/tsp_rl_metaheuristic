@@ -132,13 +132,16 @@ class GeneticTSPSolver:
         self._queue_listener_stopped = False
 
     # --- Public API -----------------------------------------------------
-    def run(self) -> Tuple[List[int], float, List[dict], float]:
-        """Execute the genetic algorithm and return the best tour found."""
+    def run(
+        self, time_limit_seconds: Optional[float] = None
+    ) -> Tuple[List[int], float, List[dict], float]:
+        """Execute the genetic algorithm with an optional wall-clock limit."""
+        run_start = time.perf_counter()
         try:
 
-            start_time = time.perf_counter()
+            init_start = time.perf_counter()
             population = self._create_initial_population()
-            elapsed = time.perf_counter() - start_time
+            elapsed = time.perf_counter() - init_start
             self.logger.info("Initial population generated in %.4f seconds", elapsed)
 
             fitness = [self._tour_distance(individual) for individual in population]
@@ -157,13 +160,24 @@ class GeneticTSPSolver:
 
             stagnation_counter = 0
             generation = 0
-            start_time = time.perf_counter()
             last_generation = 0
             max_generations = max(1, self.config.max_generations)
             population_limit = max(1, self.config.population_size)
+            deadline = (
+                run_start + max(0.0, float(time_limit_seconds))
+                if time_limit_seconds is not None
+                else None
+            )
 
             if self.best_known_hit_generation is None:
                 while generation < max_generations:
+                    if deadline is not None and time.perf_counter() >= deadline:
+                        self.logger.info(
+                            "Time limit reached before starting generation %d.",
+                            generation + 1,
+                        )
+                        break
+
                     generation += 1
                     last_generation = generation
 
@@ -225,6 +239,12 @@ class GeneticTSPSolver:
                         )
                     )
 
+                    if deadline is not None and time.perf_counter() >= deadline:
+                        self.logger.info(
+                            "Time limit reached after generation %d.", generation
+                        )
+                        break
+
                     if hit_best:
                         break
 
@@ -257,9 +277,9 @@ class GeneticTSPSolver:
                 )
 
             closed_tour = self._close_tour(best_tour)
-            elapsed = time.perf_counter() - start_time
+            elapsed_run = time.perf_counter() - run_start
             self.logger.info("Quantity of crossovers performed: %d", self._crossovers)
-            return closed_tour.tolist(), float(best_distance), history, elapsed
+            return closed_tour.tolist(), float(best_distance), history, elapsed_run
         finally:
             self._stop_logging()
 
@@ -299,6 +319,7 @@ class GeneticTSPSolver:
                 marl_learning_rate=self.config.marl_learning_rate,
                 marl_softmax_beta=self.config.marl_softmax_beta,
                 marl_epsilon=self.config.marl_epsilon,
+                log=self.logger,
             )
             fitness = [self._tour_distance(individual) for individual in population]
             self.logger.info(

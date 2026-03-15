@@ -113,12 +113,15 @@ class GeneticTSPSolverQLearning(GeneticTSPSolver):
             self.rl_epsilon = max(self.rl_epsilon_min, self.rl_epsilon * self.rl_epsilon_decay)
 
     # --- Public API -----------------------------------------------------
-    def run(self) -> Tuple[List[int], float, List[dict], float]:
+    def run(
+        self, time_limit_seconds: Optional[float] = None
+    ) -> Tuple[List[int], float, List[dict], float]:
         """Execute the GA using Q-learning to select crossover operators."""
+        run_start = time.perf_counter()
         try:
-            start_time = time.perf_counter()
+            init_start = time.perf_counter()
             population = self._create_initial_population()
-            elapsed = time.perf_counter() - start_time
+            elapsed = time.perf_counter() - init_start
             self.logger.info("Initial population generated in %.4f seconds", elapsed)
 
             fitness = [self._tour_distance(individual) for individual in population]
@@ -137,10 +140,14 @@ class GeneticTSPSolverQLearning(GeneticTSPSolver):
 
             stagnation_counter = 0
             generation = 0
-            start_time = time.perf_counter()
             last_generation = 0
             max_generations = max(1, self.config.max_generations)
             population_limit = max(1, self.config.population_size)
+            deadline = (
+                run_start + max(0.0, float(time_limit_seconds))
+                if time_limit_seconds is not None
+                else None
+            )
 
             crossover_ops: list[tuple[str, Callable[[np.ndarray, np.ndarray], np.ndarray]]] = [
                 ("smx", self._smx_crossover),
@@ -152,6 +159,13 @@ class GeneticTSPSolverQLearning(GeneticTSPSolver):
 
             if self.best_known_hit_generation is None:
                 while generation < max_generations:
+                    if deadline is not None and time.perf_counter() >= deadline:
+                        self.logger.info(
+                            "Time limit reached before starting generation %d.",
+                            generation + 1,
+                        )
+                        break
+
                     generation += 1
                     last_generation = generation
 
@@ -222,6 +236,12 @@ class GeneticTSPSolverQLearning(GeneticTSPSolver):
                         )
                     )
 
+                    if deadline is not None and time.perf_counter() >= deadline:
+                        self.logger.info(
+                            "Time limit reached after generation %d.", generation
+                        )
+                        break
+
                     if hit_best:
                         break
 
@@ -251,8 +271,8 @@ class GeneticTSPSolverQLearning(GeneticTSPSolver):
                 )
 
             closed_tour = self._close_tour(best_tour)
-            elapsed = time.perf_counter() - start_time
+            elapsed_run = time.perf_counter() - run_start
             self.logger.info("Quantity of crossovers performed: %d", self._crossovers)
-            return closed_tour.tolist(), float(best_distance), history, elapsed
+            return closed_tour.tolist(), float(best_distance), history, elapsed_run
         finally:
             self._stop_logging()
