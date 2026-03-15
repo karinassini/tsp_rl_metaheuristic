@@ -4,9 +4,12 @@ __pycache__/
 .venv
 
 outputs/
+outputs_old/
 
 data/
 
 **.DS_Store
 
 *next_step.md
+
+**atividade*
