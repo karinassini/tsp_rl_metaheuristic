@@ -10,11 +10,15 @@ unvisited city – effectively a Prim-like growth of a Hamiltonian cycle.
 from __future__ import annotations
 
 import json
+import logging
 import random
+import math
 from typing import Dict, Iterable, List, Optional, Set, Tuple
 import numpy as np
 from config import QLearningConfig
 from src.structures.graph import Graph
+
+logger = logging.getLogger(__name__)
 
 
 # MARL helpers for GA initialisation
@@ -224,7 +228,8 @@ def _nich_local_search(
 
 def _marl_candidate_list_limit(n_cities: int) -> int:
     if n_cities <= 200:
-        return max(1, n_cities // 4)
+        # Paper: MCL size = n/4 (use ceil to avoid zero for very small n)
+        return max(1, int(math.ceil(n_cities / 4)))
     return 50
 
 
@@ -232,9 +237,8 @@ def _distance_ranked_actions(
     distance_matrix: np.ndarray,
     state: int,
     available: Iterable[int],
-    marl_top_k: Optional[int],
+    limit: Optional[int],
 ) -> List[int]:
-    limit = marl_top_k
     candidates = list(available)
     if not candidates:
         return []
@@ -244,6 +248,35 @@ def _distance_ranked_actions(
     return candidates[:limit]
 
 
+def _marl_candidate_lists(
+    distance_matrix: np.ndarray,
+    state: int,
+    available: Iterable[int],
+    marl_top_k: Optional[int],
+) -> tuple[list[int], list[int]]:
+    """Build the candidate list (CL) and mutation candidate list (MCL).
+
+    CL = closest ``marl_top_k`` cities (or all if ``marl_top_k`` is falsy).
+    MCL = broader set limited by ``_marl_candidate_list_limit`` as in the paper.
+    Both lists are ordered by distance so sampling respects nearest-first ties.
+    """
+
+    mutation_limit = _marl_candidate_list_limit(len(distance_matrix))
+    mutation_list = _distance_ranked_actions(
+        distance_matrix,
+        state,
+        available,
+        mutation_limit,
+    )
+
+    if marl_top_k is None or marl_top_k <= 0:
+        candidate_list = mutation_list
+    else:
+        candidate_list = mutation_list[:marl_top_k]
+
+    return candidate_list, mutation_list
+
+
 def _marl_softmax(
     distance_matrix: np.ndarray,
     state: int,
@@ -251,6 +284,7 @@ def _marl_softmax(
     q_table: np.ndarray,
     beta: float,
 ) -> List[float]:
+    
     beta = max(0.1, beta)
     q_values = np.asarray([q_table[state, idx] for idx in available], dtype=float)
     inverse_distances = np.asarray(
@@ -261,32 +295,24 @@ def _marl_softmax(
     energy -= float(np.max(energy))
     exp_values = np.exp(energy)
     total = float(np.sum(exp_values))
+
+    # Paper form: P(a|s_c) = exp_i / sum_{j!=i} exp_j. For sampling we
+    # renormalise these ratios so they form a proper distribution.
     if total <= 0:
         return [1.0 / len(available)] * len(available)
-    return (exp_values / total).tolist()
+    if len(available) == 1:
+        return [1.0]
 
+    raw = []
+    for val in exp_values:
+        denom = total - val # Exclude the current action's energy from the denominator as per the paper's formulation.
+        ratio = val / denom if denom > 1e-12 else 1.0 
+        raw.append(ratio)
 
-def _marl_candidate_actions(
-    distance_matrix: np.ndarray,
-    state: int,
-    available: Iterable[int],
-    q_table: np.ndarray,
-    marl_top_k: Optional[int],
-) -> List[int]:
-    candidates = list(available)
-    limit = _marl_candidate_list_limit(len(distance_matrix))
-    if limit is None or limit <= 0 or len(candidates) <= limit:
-        return candidates
-    weights = _marl_softmax(distance_matrix, state, candidates, q_table, beta=1.0)
-    ranked = sorted(
-        zip(candidates, weights),
-        key=lambda item: item[1],
-        reverse=True,
-    )
-    top = [idx for idx, _weight in ranked[:limit]]
-    if marl_top_k is not None and marl_top_k > 0:
-        top = top[:marl_top_k]
-    return top
+    raw_sum = float(np.sum(raw))
+    if raw_sum <= 0:
+        return [1.0 / len(raw)] * len(raw)
+    return (np.asarray(raw, dtype=float) / raw_sum).tolist()
 
 
 def _marl_select_action(
@@ -298,29 +324,43 @@ def _marl_select_action(
     epsilon: float,
     beta: float,
     marl_top_k: Optional[int],
+    policy_epsilon_greedy_prob: float = 1.0,
 ) -> int:
     if not available:
         return state
 
-    candidate_actions = _marl_candidate_actions(
+    candidate_list, mutation_list = _marl_candidate_lists(
         distance_matrix,
         state,
         available,
-        q_table,
         marl_top_k,
     )
 
-    if rng.random() < epsilon:
-        return candidate_actions[0]
+    if not candidate_list:
+        # Fall back to any remaining city if CL is empty.
+        return rng.choice(mutation_list) if mutation_list else state
 
-    weights = _marl_softmax(distance_matrix, state, candidate_actions, q_table, beta)
+    weights = _marl_softmax(distance_matrix, state, candidate_list, q_table, beta)
+
+    # Choose which policy to apply for this decision: with probability p use epsilon-greedy, otherwise softmax.
+    use_eps = rng.random() < max(0.0, min(1.0, policy_epsilon_greedy_prob))
+
+    if use_eps:
+        # With small probability pick a random city from the larger MCL (exploration).
+        if rng.random() < epsilon and mutation_list:
+            return rng.choice(mutation_list)
+        # Otherwise choose the argmax of P(a|s_c) within the CL (exploitation).
+        best_idx = int(np.argmax(weights))
+        return candidate_list[best_idx]
+
+    # Softmax policy: sample inside the CL proportionally to P(a|s_c).
     threshold = rng.random()
     cumulative = 0.0
-    for idx, weight in zip(candidate_actions, weights):
+    for idx, weight in zip(candidate_list, weights):
         cumulative += weight
         if cumulative >= threshold:
             return idx
-    return candidate_actions[-1]
+    return candidate_list[-1]
 
 
 def _marl_construct_tour(
@@ -330,31 +370,28 @@ def _marl_construct_tour(
     marl_top_k: Optional[int],
     epsilon: float,
     beta: float,
+    policy_epsilon_greedy_prob: float = 1.0,
 ) -> np.ndarray:
+    
+
     n_cities = distance_matrix.shape[0]
-    start = rng.randrange(n_cities)
+    start = rng.randrange(n_cities) # starts randomly from any city, as per the paper. This also ensures we get some diversity in the initial population when multiple MARL tours are generated.
     unvisited = set(range(n_cities))
-    unvisited.remove(start)
+    unvisited.remove(start) # disable action
     tour = [start]
 
-    while unvisited:
+    while unvisited: # for n times until we have a complete tour, the agent selects the next city to visit using the _marl_select_action function, which implements the action selection strategy based on the current Q-table and distance matrix. The selected city is then appended to the tour, and removed from the set of unvisited cities. This process continues until all cities have been visited, resulting in a complete tour.
         current = tour[-1]
-        candidate_actions = _distance_ranked_actions(
-            distance_matrix,
-            current,
-            unvisited,
-            marl_top_k,
-        )
-
         action = _marl_select_action(
             distance_matrix,
             current,
-            list(candidate_actions),
+            list(unvisited),
             q_table,
             rng,
             epsilon,
             beta,
             marl_top_k,
+            policy_epsilon_greedy_prob,
         )
         tour.append(action)
         unvisited.remove(action)
@@ -391,15 +428,20 @@ def marl_initial_population(
     marl_learning_rate: float,
     marl_softmax_beta: float,
     marl_epsilon: float,
+    marl_policy_epsilon_greedy_prob: float = 1.0,
+    log: Optional[logging.Logger] = None,
 ) -> List[np.ndarray]:
     """Generate a MARL-seeded population for the GA."""
 
+    logger_obj = log
+
     distance_matrix = np.asarray(graph.build_adj_matrix_full(), dtype=float)
     n_cities = graph.n_nodes
-    q_table = np.ones((n_cities, n_cities), dtype=float)
+    q_table = np.ones((n_cities, n_cities), dtype=float) # first step is to build a Q-table with all 1s, meaning the agent has no prior preference for any action in any state. This allows the learning process to start from a neutral baseline, where the agent can explore the environment and learn which actions lead to better outcomes based on the rewards received.
     candidate_set: List[tuple[np.ndarray, float]] = []
     best_distance = float("inf")
     target = max(1, int(round(marl_candidate_ratio * population_size)))
+
 
     for _ in range(max(1, marl_iterations)):
         iteration_tours: List[tuple[np.ndarray, float]] = []
@@ -411,6 +453,7 @@ def marl_initial_population(
                 marl_top_k,
                 marl_epsilon,
                 marl_softmax_beta,
+                marl_policy_epsilon_greedy_prob,
             )
             distance = _tour_distance(tour, distance_matrix)
             iteration_tours.append((tour, distance))
@@ -422,6 +465,13 @@ def marl_initial_population(
         iteration_best_tour, iteration_best_distance = iteration_tours[0]
 
         if iteration_best_distance + 1e-9 < best_distance:
+            if logger_obj is not None:
+                logger_obj.info(
+                    "New best MARL tour found with distance %.2f at iteration %d/%d",
+                    iteration_best_distance,
+                    _ + 1,
+                    marl_iterations,
+                )
             best_distance = iteration_best_distance
             _marl_update_q_table(
                 distance_matrix,
@@ -534,7 +584,9 @@ def _deterministic_tour_cost(
 def _q_learning(
     distance_matrix: np.ndarray,
     cfg: QLearningConfig,
+    log: Optional[logging.Logger] = None,
 ) -> np.ndarray:
+    logger_obj = log
     n = distance_matrix.shape[0]
     rewards = _reward_matrix(distance_matrix)
     q_table = np.zeros_like(distance_matrix)
@@ -593,12 +645,12 @@ def _q_learning(
         if reset_interval and (episode + 1) % reset_interval == 0:
             # Periodic reset keeps exploration alive once epsilon reaches epsilon_min.
             epsilon = max(cfg.epsilon_min, reset_value)
-            print(
-                "Episode {ep}: epsilon reset to {val:.4f} after decay plateau".format(
-                    ep=episode + 1,
-                    val=epsilon,
+            if logger_obj is not None:
+                logger_obj.info(
+                    "Episode %d: epsilon reset to %.4f after decay plateau",
+                    episode + 1,
+                    epsilon,
                 )
-            )
 
         if monitor_interval and (episode + 1) % monitor_interval == 0:
             current_snapshot = q_table.copy()
@@ -617,17 +669,16 @@ def _q_learning(
             if greedy_cost < best_monitored_cost:
                 best_monitored_cost = greedy_cost
                 best_q_snapshot = current_snapshot.copy()
-            print(
-                "Episode {ep}: Q-table Δ_fro={df:.6f}, Δ_max={dm:.6f}, T {tour} "
-                "greedy_cost={gc:.2f}{flag}".format(
-                    ep=episode + 1,
-                    df=delta_fro,
-                    dm=delta_max,
-                    tour=tour,
-                    gc=greedy_cost,
-                    flag=is_best,
+            if logger_obj is not None:
+                logger_obj.info(
+                    "Episode %d: Q-table Δ_fro=%.6f, Δ_max=%.6f, T %s greedy_cost=%.2f%s",
+                    episode + 1,
+                    delta_fro,
+                    delta_max,
+                    tour,
+                    greedy_cost,
+                    is_best,
                 )
-            )
             previous_snapshot = current_snapshot
 
     if best_q_snapshot is not None:
@@ -678,8 +729,11 @@ def q_learning_tour(
     *,
     start: Optional[int] = None,
     cfg: Optional[QLearningConfig] = None,
+    log: Optional[logging.Logger] = None,
 ) -> np.ndarray:
     """Generate a tour using a Q-learning policy trained on the TSP instance."""
+
+    logger_obj = log
 
     cfg = cfg or QLearningConfig()
     distance_matrix = np.asarray(graph.build_adj_matrix_full(), dtype=float)
@@ -689,7 +743,7 @@ def q_learning_tour(
 
     q_table = _load_q_table(distance_matrix, cfg)
     if q_table is None:
-        q_table = _q_learning(distance_matrix, cfg)
+        q_table = _q_learning(distance_matrix, cfg, log=logger_obj)
         _save_q_table(distance_matrix, q_table, cfg)
 
     nodes = list(graph.nodes)

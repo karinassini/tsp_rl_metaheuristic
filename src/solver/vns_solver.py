@@ -19,8 +19,17 @@ from src.solver.initial_solution import (
     marl_initial_population,
 )
 
+from src.solver.local_search_operators import LocalSearchOperatorsMixin
 
-class VNS_Solver:
+class ShakeOp:
+    def __init__(self, func, name):
+        self.func = func
+        self.name = name
+    def __call__(self, tour):
+        return self.func(tour)
+    
+
+class VNS_Solver(LocalSearchOperatorsMixin):
     """
     A class to solve the Traveling Salesman Problem (TSP) using Variable Neighborhood Search (VNS).
     Accepts a Graph object for flexibility.
@@ -39,6 +48,7 @@ class VNS_Solver:
         marl_params: dict | None = None,
         best_known_distance: float | None = None,
         timestamp: str | None = None,
+        segment_len_val: int | None = None,
     ):
         """
         Initialize the VNS solver with a Graph object.
@@ -53,6 +63,7 @@ class VNS_Solver:
         self.save_dir = save_dir
         self.method = method  # Change to "random" to use a random initial solution
         self.max_double_bridge_checks = max(0, max_double_bridge_checks)
+        self.segment_len_val = segment_len_val
         self.restricted_two_opt_max_span = max(2, restricted_two_opt_max_span)
         self.max_flip_subsequence_length = max(2, max_flip_subsequence_length)
         self.max_inversion_segment_length = max(2, max_inversion_segment_length)
@@ -61,6 +72,7 @@ class VNS_Solver:
         self.best_known_distance = best_known_distance
         self.best_known_hit_iteration: int | None = None
         self.iterations_executed: int = 0
+        self.initial_solution_time: float | None = None
         self.timestamp = (
             timestamp if timestamp is not None else time.strftime("%Y%m%d_%H%M%S")
         )
@@ -103,6 +115,7 @@ class VNS_Solver:
             "restricted_two_opt_max_span": self.restricted_two_opt_max_span,
             "max_flip_subsequence_length": self.max_flip_subsequence_length,
             "max_inversion_segment_length": self.max_inversion_segment_length,
+            "segment_len_val": self.segment_len_val,
             "best_known_distance": self.best_known_distance,
             "q_learning_cfg": (
                 asdict(self.q_learning_cfg) if self.q_learning_cfg else None
@@ -161,83 +174,6 @@ class VNS_Solver:
         upper = np.maximum(tour, tour_shifted)
         return float(np.sum(dist_matrix[lower, upper]))
 
-    @staticmethod
-    def two_opt(tour, i, j):
-        new_tour = np.concatenate((tour[:i], tour[i : j + 1][::-1], tour[j + 1 :]))
-        return new_tour
-
-    @staticmethod
-    def three_opt(tour, i, j, k):
-        new_tour = np.concatenate((tour[:i], tour[j:k], tour[i:j], tour[k:]))
-        return new_tour
-
-    @staticmethod
-    def two_exchange(tour: np.ndarray, i: int, j: int) -> np.ndarray:
-        """Swap two vertex positions in the tour (2-exchange move)."""
-        is_closed = tour[0] == tour[-1]
-        core = tour[:-1] if is_closed else tour
-        new_core = core.copy()
-        new_core[i], new_core[j] = new_core[j], new_core[i]
-        if is_closed:
-            return np.concatenate((new_core, [new_core[0]]))
-        return new_core
-
-    @staticmethod
-    def one_insertion(tour: np.ndarray, i: int, j: int) -> np.ndarray:
-        """Remove the vertex at position i and insert it before position j."""
-        if i == j:
-            return tour.copy()
-
-        is_closed = tour[0] == tour[-1]
-        core = tour[:-1] if is_closed else tour
-        new_core = core.copy()
-        city = new_core[i]
-        new_core = np.delete(new_core, i)
-        if j > i:
-            j -= 1
-        new_core = np.insert(new_core, j, city)
-        if is_closed:
-            return np.concatenate((new_core, [new_core[0]]))
-        return new_core
-
-    @staticmethod
-    def double_bridge_move(
-        tour: np.ndarray, a: int, b: int, c: int, d: int
-    ) -> np.ndarray:
-        """Apply a double-bridge move defined by four cut indices."""
-        if len(tour) < 6:
-            return tour.copy()
-
-        is_closed = tour[0] == tour[-1]
-        core = tour[:-1] if is_closed else tour
-        n = len(core)
-        if n < 6:
-            return tour.copy()
-
-        segment_1 = core[:a]
-        segment_2 = core[a:b]
-        segment_3 = core[b:c]
-        segment_4 = core[c:d]
-        segment_5 = core[d:]
-
-        new_core = np.concatenate(
-            (segment_1, segment_3, segment_2, segment_4, segment_5)
-        )
-        if is_closed:
-            new_core = np.concatenate((new_core, [new_core[0]]))
-        return new_core
-
-    @classmethod
-    def random_double_bridge(cls, tour: np.ndarray) -> np.ndarray:
-        """Generate a random double-bridge perturbation."""
-        is_closed = tour[0] == tour[-1]
-        core_length = len(tour) - 1 if is_closed else len(tour)
-        if core_length < 6:
-            return tour.copy()
-
-        a, b, c, d = sorted(random.sample(range(1, core_length), 4))
-        return cls.double_bridge_move(tour, a, b, c, d)
-
     def local_search(
         self, tour: np.ndarray, current_distance: float, operators=None
     ) -> np.ndarray:
@@ -245,9 +181,9 @@ class VNS_Solver:
         if operators is None:
             operators = [
                 self._two_opt_first_improvement,
-                self._limited_subsequence_flip_first_improvement,
-                self._one_insertion_first_improvement,
-                self._two_exchange_first_improvement,
+                self._one_move_insertion_improvement,
+                self._three_opt_first_improvement,
+                #self._two_exchange_first_improvement,
                 self._double_bridge_first_improvement,
             ]
 
@@ -274,351 +210,74 @@ class VNS_Solver:
                     break  # restart from the first operator in the next iteration
         return current_tour, current_distance
 
-    def _two_opt_first_improvement(
-        self, tour: np.ndarray, current_distance: float
-    ) -> tuple[np.ndarray, bool, float]:
-        """Return the first improving 2-opt move using incremental edge deltas.
-
-        The tour may be open or explicitly closed by repeating the starting city. The
-        inner loops enumerate non-adjacent edge pairs (a,b) and (c,d), skipping
-        consecutive indices so that the swap remains valid. For each candidate swap we
-        reuse the upper-triangular distance matrix and compute the local delta
-        ``(a,b) + (c,d) -> (a,c) + (b,d)`` without recomputing the full tour length. If a
-        negative delta is found the segment [i,j] is reversed, and the updated tour and
-        distance are returned immediately.
+   
+    def shaking(self, tour: np.ndarray, k: int) -> np.ndarray:
         """
-        is_closed = tour[0] == tour[-1]
-        length = len(tour) - 1 if is_closed else len(tour)
+        VNS shaking stratified by strength (k) and adapted to instance size.
+        k = 1: light | k = 2: medium | k = 3: strong | k >= 4: very strong.
+        Avoids operators duplicated in the local search set.
+        """
+        core, is_closed = self._extract_core(tour)
+        n = len(core)
 
-        def edge_cost(u: int, v: int) -> float:
-            lower, upper = (u, v) if u <= v else (v, u)
-            return self.distance_matrix[lower, upper]
+        # Adaptive segment sizes (robust across different n)
+        seg_len_mild_adapt   = max(4, min(8,  n // 20 or 4))
+        seg_len_medium_adapt = max(5, min(12, n // 16 or 5))
+        seg_len_strong_adapt = max(6, min(18, n // 12 or 6))
 
-        core = tour[:-1] if is_closed else tour
-
-        for i in range(1, length - 1):
-            for j in range(i + 1, length):
-                if j - i == 1:
-                    continue
-
-                a, b = core[i - 1], core[i]
-                c, d = core[j], core[(j + 1) % length]
-
-                removed = edge_cost(a, b) + edge_cost(c, d)
-                added = edge_cost(a, c) + edge_cost(b, d)
-                delta = added - removed
-
-                if delta < 0:
-                    new_distance = current_distance + delta
-                    candidate = self.two_opt(tour, i, j)
-                    return candidate, True, new_distance
-
-        return tour, False, current_distance
-
-    def _two_exchange_first_improvement(
-        self, tour: np.ndarray, current_distance: float
-    ) -> tuple[np.ndarray, bool, float]:
-        is_closed = tour[0] == tour[-1]
-        length = len(tour) - 1 if is_closed else len(tour)
-        if length < 3:
-            return tour, False, current_distance
-
-        def edge_cost(u: int | None, v: int | None) -> float:
-            if u is None or v is None:
-                return 0.0
-            lower, upper = (u, v) if u <= v else (v, u)
-            return self.distance_matrix[lower, upper]
-
-        core = tour[:-1] if is_closed else tour
-
-        for i in range(1, length - 1):
-            for j in range(i + 1, length):
-                city_i = core[i]
-                city_j = core[j]
-
-                prev_i = core[i - 1] if i > 0 else (core[-1] if is_closed else None)
-                next_i = (
-                    core[(i + 1) % length] if (is_closed or i + 1 < length) else None
-                )
-
-                prev_j = core[j - 1] if j > 0 else (core[-1] if is_closed else None)
-                next_j = (
-                    core[(j + 1) % length] if (is_closed or j + 1 < length) else None
-                )
-
-                adjacent = j == i + 1
-                if adjacent:
-                    removed = edge_cost(prev_i, city_i) + edge_cost(city_j, next_j)
-                    added = edge_cost(prev_i, city_j) + edge_cost(city_i, next_j)
-                else:
-                    removed = (
-                        edge_cost(prev_i, city_i)
-                        + edge_cost(city_i, next_i)
-                        + edge_cost(prev_j, city_j)
-                        + edge_cost(city_j, next_j)
-                    )
-                    added = (
-                        edge_cost(prev_i, city_j)
-                        + edge_cost(city_j, next_i)
-                        + edge_cost(prev_j, city_i)
-                        + edge_cost(city_i, next_j)
-                    )
-
-                delta = added - removed
-                if delta < 0:
-                    new_distance = current_distance + delta
-                    candidate = self.two_exchange(tour, i, j)
-                    return candidate, True, new_distance
-
-        return tour, False, current_distance
-
-    def _one_insertion_first_improvement(
-        self, tour: np.ndarray, current_distance: float
-    ) -> tuple[np.ndarray, bool, float]:
-        is_closed = tour[0] == tour[-1]
-        length = len(tour) - 1 if is_closed else len(tour)
-        if length < 3:
-            return tour, False, current_distance
-
-        def edge_cost(u: int, v: int) -> float:
-            lower, upper = (u, v) if u <= v else (v, u)
-            return self.distance_matrix[lower, upper]
-
-        core = tour[:-1] if is_closed else tour
-
-        for i in range(1, length):
-            city = core[i]
-            prev_i = core[i - 1] if i > 0 else (core[-1] if is_closed else None)
-            next_i = core[(i + 1) % length] if (is_closed or i + 1 < length) else None
-
-            removal_delta = 0.0
-            if prev_i is not None:
-                removal_delta -= edge_cost(prev_i, city)
-            if next_i is not None:
-                removal_delta -= edge_cost(city, next_i)
-                if prev_i is not None:
-                    removal_delta += edge_cost(prev_i, next_i)
-
-            core_removed = np.delete(core, i)
-            reduced_len = len(core_removed)
-            if reduced_len == 0:
-                continue
-
-            for j in range(1, length + 1):
-                if i == j or j == i + 1:
-                    continue
-
-                insert_idx = j
-                if insert_idx > i:
-                    insert_idx -= 1
-
-                if insert_idx < 0 or insert_idx > reduced_len:
-                    continue
-
-                if is_closed:
-                    prev_new = core_removed[(insert_idx - 1) % reduced_len]
-                    next_new = core_removed[insert_idx % reduced_len]
-                else:
-                    prev_new = core_removed[insert_idx - 1] if insert_idx > 0 else None
-                    next_new = (
-                        core_removed[insert_idx] if insert_idx < reduced_len else None
-                    )
-
-                insertion_delta = 0.0
-                if prev_new is not None and next_new is not None:
-                    insertion_delta -= edge_cost(prev_new, next_new)
-                if prev_new is not None:
-                    insertion_delta += edge_cost(prev_new, city)
-                if next_new is not None:
-                    insertion_delta += edge_cost(city, next_new)
-
-                delta = removal_delta + insertion_delta
-                if delta < 0:
-                    new_distance = current_distance + delta
-                    candidate = self.one_insertion(tour, i, j)
-                    return candidate, True, new_distance
-
-        return tour, False, current_distance
-
-    def _double_bridge_first_improvement(
-        self, tour: np.ndarray, current_distance: float
-    ) -> tuple[np.ndarray, bool, float]:
-        is_closed = tour[0] == tour[-1]
-        length = len(tour) - 1 if is_closed else len(tour)
-        if length < 6:
-            return tour, False, current_distance
-
-        def edge_cost(u: int | None, v: int | None) -> float:
-            if u is None or v is None:
-                return 0.0
-            lower, upper = (u, v) if u <= v else (v, u)
-            return self.distance_matrix[lower, upper]
-
-        # Exhaustive enumeration is O(n^4). Instead, sample a bounded number of candidate quadruples.
-        max_checks = self.max_double_bridge_checks
-        if max_checks == 0:
-            return tour, False, current_distance
-
-        core = tour[:-1] if is_closed else tour
-        indices = list(range(1, length))
-        all_combinations = list(itertools.combinations(indices, 4))
-        selected_combination = random.sample(
-            all_combinations,
-            int(len(all_combinations) * min(1, max_checks / len(all_combinations))),
-        )
-
-        # We keep sampling unique quadruples until we reach the configured limit.
-        while selected_combination:
-            a, b, c, d = sorted(selected_combination.pop())
-
-            prev_a = core[a - 1]
-            head_s2 = core[a]
-            tail_s2 = core[b - 1]
-            head_s3 = core[b]
-            tail_s3 = core[c - 1]
-            head_s4 = core[c]
-
-            removed = (
-                edge_cost(prev_a, head_s2)
-                + edge_cost(tail_s2, head_s3)
-                + edge_cost(tail_s3, head_s4)
-            )
-            added = (
-                edge_cost(prev_a, head_s3)
-                + edge_cost(tail_s3, head_s2)
-                + edge_cost(tail_s2, head_s4)
+        # If self.segment_len_val is set, it overrides the adaptive values
+        if self.segment_len_val is not None:
+            seg_len_mild   = self.segment_len_val
+            seg_len_medium = self.segment_len_val
+            seg_len_strong = self.segment_len_val
+        else:
+            seg_len_mild, seg_len_medium, seg_len_strong = (
+                seg_len_mild_adapt, seg_len_medium_adapt, seg_len_strong_adapt
             )
 
-            delta = added - removed
-            if delta < 0:
-                new_distance = current_distance + delta
-                candidate = self.double_bridge_move(tour, a, b, c, d)
-                return candidate, True, new_distance
-        return tour, False, current_distance
+        k_small  = max(3, min(4, n // 25 or 3))
+        k_medium = max(4, min(6, n // 18 or 4))
+        k_large  = max(5, min(8, n // 12 or 5))
 
-    def _restricted_two_opt_first_improvement(
-        self, tour: np.ndarray, current_distance: float
-    ) -> tuple[np.ndarray, bool, float]:
-        """First improvement 2-opt limited to short spans to focus on local noise."""
+        # Operator sets by strength (without duplicating LS operators)
+        if k <= 1:
+            ops = [
+                ShakeOp(lambda t: self._shake_oropt_block(t, block_len=2), "_shake_oropt_block_2"),
+                ShakeOp(lambda t: self._shake_oropt_block(t, block_len=3), "_shake_oropt_block_3"),
+                ShakeOp(lambda t: self._shake_shuffle_segment(t, seg_len=seg_len_mild), "_shake_shuffle_segment_mild"),
+            ]
+        elif k == 2:
+            ops = [
+                ShakeOp(lambda t: self._shake_k_exchange(t, k_nodes=k_small), "_shake_k_exchange_small"),
+                ShakeOp(lambda t: self._shake_cross_exchange(t, len1=seg_len_mild // 2 + 1, len2=seg_len_mild // 2 + 1), "_shake_cross_exchange_mild"),
+                ShakeOp(lambda t: self._shake_shuffle_segment(t, seg_len=seg_len_medium), "_shake_shuffle_segment_medium"),
+            ]
+        elif k == 3:
+            ops = [
+                ShakeOp(lambda t: self._shake_double_bridge(t), "_shake_double_bridge"),
+                ShakeOp(lambda t: self._shake_k_exchange(t, k_nodes=k_medium), "_shake_k_exchange_medium"),
+                ShakeOp(lambda t: self._shake_cross_exchange(t, len1=seg_len_medium // 2 + 2, len2=seg_len_medium // 2 + 2), "_shake_cross_exchange_medium"),
+                ShakeOp(lambda t: self._shake_block_recombine(t, block_size=max(6, n // 10)), "_shake_block_recombine_medium"),
+            ]
+        else:  # k >= 4
+            ops = [
+                ShakeOp(lambda t: self._shake_double_bridge(t), "_shake_double_bridge"),
+                ShakeOp(lambda t: self._shake_k_exchange(t, k_nodes=k_large), "_shake_k_exchange_large"),
+                ShakeOp(lambda t: self._shake_cross_exchange(t, len1=seg_len_strong // 2 + 2, len2=seg_len_strong // 2 + 2), "_shake_cross_exchange_strong"),
+                ShakeOp(lambda t: self._shake_block_recombine(t, block_size=max(8, n // 8)), "_shake_block_recombine_strong"),
+                ShakeOp(lambda t: self._shake_shuffle_segment(t, seg_len=seg_len_strong), "_shake_shuffle_segment_strong"),
+            ]
 
-        is_closed = tour[0] == tour[-1]
-        length = len(tour) - 1 if is_closed else len(tour)
-        span_limit = min(self.restricted_two_opt_max_span, max(2, length - 1))
-
-        def edge_cost(u: int, v: int) -> float:
-            lower, upper = (u, v) if u <= v else (v, u)
-            return self.distance_matrix[lower, upper]
-
-        core = tour[:-1] if is_closed else tour
-
-        for i in range(1, length - 1):
-            max_j = min(length, i + span_limit)
-            for j in range(i + 1, max_j):
-                if j - i == 1:
-                    continue
-
-                a, b = core[i - 1], core[i]
-                c, d = core[j], core[(j + 1) % length]
-
-                removed = edge_cost(a, b) + edge_cost(c, d)
-                added = edge_cost(a, c) + edge_cost(b, d)
-                delta = added - removed
-
-                if delta < 0:
-                    candidate = self.two_opt(tour, i, j)
-                    new_distance = current_distance + delta
-                    return candidate, True, new_distance
-
-        return tour, False, current_distance
-
-    def _limited_subsequence_flip_first_improvement(
-        self, tour: np.ndarray, current_distance: float
-    ) -> tuple[np.ndarray, bool, float]:
-        """Reverse only short contiguous subsequences (<= max_flip_subsequence_length)."""
-
-        is_closed = tour[0] == tour[-1]
-        length = len(tour) - 1 if is_closed else len(tour)
-        if length < 4:
-            return tour, False, current_distance
-
-        max_len = min(self.max_flip_subsequence_length, length - 1)
-
-        def edge_cost(u: int | None, v: int | None) -> float:
-            if u is None or v is None:
-                return 0.0
-            lower, upper = (u, v) if u <= v else (v, u)
-            return self.distance_matrix[lower, upper]
-
-        core = tour[:-1] if is_closed else tour
-
-        for start in range(1, length - 1):
-            local_max = min(max_len, length - start)
-            for seg_len in range(2, local_max + 1):
-                end = start + seg_len - 1
-                prev_city = core[start - 1]
-                first_city = core[start]
-                last_city = core[end]
-                if is_closed or end + 1 < length:
-                    next_city = core[(end + 1) % length]
-                else:
-                    next_city = None
-
-                removed = edge_cost(prev_city, first_city) + edge_cost(
-                    last_city, next_city
-                )
-                added = edge_cost(prev_city, last_city) + edge_cost(
-                    first_city, next_city
-                )
-                delta = added - removed
-
-                if delta < 0:
-                    candidate = self.two_opt(tour, start, end)
-                    new_distance = current_distance + delta
-                    return candidate, True, new_distance
-
-        return tour, False, current_distance
-
-    def _sample_inversion_insertion(self, tour: np.ndarray) -> np.ndarray:
-        core = tour[:-1] if tour[0] == tour[-1] else tour
-        length = len(core)
-        if length < 5:
-            return tour.copy()
-
-        max_len = min(self.max_inversion_segment_length, length - 1)
-        start = random.randrange(1, length - 1)
-        seg_len = random.randrange(2, min(max_len, length - start) + 1)
-        end = start + seg_len
-
-        segment = core[start:end][::-1]
-        remainder = np.concatenate((core[:start], core[end:]))
-
-        insert_idx = random.randrange(1, remainder.size + 1)
-        new_core = np.concatenate(
-            (remainder[:insert_idx], segment, remainder[insert_idx:])
-        )
-        if tour[0] == tour[-1]:
-            new_core = np.concatenate((new_core, [new_core[0]]))
-        return new_core
-
-    def shaking(self, tour, k):
-        new_tour = tour.copy()
-        if k == 1:
-            i, j = sorted(random.sample(range(1, len(tour) - 1), 2))
-            new_tour = self.two_opt(new_tour, i, j)
-        if k == 2:
-            is_closed = new_tour[0] == new_tour[-1]
-            length = len(new_tour) - 1 if is_closed else len(new_tour)
-            if length > 3:
-                i = random.randrange(1, length)
-                j = random.randrange(1, length + 1)
-                # Avoid no-op or immediate reinsertion positions.
-                while j == i or j == i + 1:
-                    j = random.randrange(1, length + 1)
-                new_tour = self.one_insertion(new_tour, i, j)
-        if k == 3:
-            new_tour = self.random_double_bridge(new_tour)
-        if k == 4:
-            new_tour = self._sample_inversion_insertion(new_tour)
+        # Try a few times to avoid occasional no-ops
+        tries = min(8, 2 + len(ops))
+        new_tour = tour
+        for _ in range(tries):
+            op = random.choice(ops)
+            self.logger.info("Shaking with operator: %s", op.name)
+            candidate = op(tour)
+            if candidate is not None and candidate.shape == tour.shape and not np.array_equal(candidate, tour):
+                new_tour = candidate
+                break
         return new_tour
 
     def vns_solve(
@@ -638,6 +297,8 @@ class VNS_Solver:
         method_key = self.method.lower() if isinstance(self.method, str) else "random"
         self.best_known_hit_iteration = None
 
+        init_start = time.time()
+
         if method_key in {"greedy", "nearest_neighbour", "nearest_neighbor", "nrnbr"}:
             seed = start if start is not None else random.randint(0, self.n_cities - 1)
             tour = nearest_neighbour_tour(self.graph, start=seed)
@@ -651,6 +312,7 @@ class VNS_Solver:
                 self.graph,
                 start=start,
                 cfg=self.q_learning_cfg,
+                log=self.logger,
             )
             total_distance = self.tour_distance(tour, full_distance_matrix)
             self.logger.info(
@@ -691,6 +353,7 @@ class VNS_Solver:
                 marl_learning_rate=float(params.get("marl_learning_rate", 0.4)),
                 marl_softmax_beta=float(params.get("marl_softmax_beta", 2.0)),
                 marl_epsilon=float(params.get("marl_epsilon", 0.15)),
+                log=self.logger,
             )
             if not population:
                 raise ValueError("MARL initialisation produced no candidates.")
@@ -720,6 +383,13 @@ class VNS_Solver:
                 f"Unknown initialisation method '{self.method}'. "
                 "Supported values: 'greedy', 'nearest_neighbour', 'random', 'q_learning', 'marl'."
             )
+
+        self.initial_solution_time = time.time() - init_start
+        self.logger.info(
+            "Initial solution built in %.4f seconds (method=%s)",
+            self.initial_solution_time,
+            method_key,
+        )
 
         total_distance = float(total_distance)
         self.initial_solution = total_distance
@@ -841,3 +511,8 @@ class VNS_Solver:
             )
         finally:
             self._stop_logging()
+
+
+
+
+

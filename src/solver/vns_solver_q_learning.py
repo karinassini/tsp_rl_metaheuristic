@@ -25,10 +25,11 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
         graph: Graph,
         save_dir: str = None,
         method="random",
-        max_double_bridge_checks: int = 100,
+        max_double_bridge_checks: int = 250,
         restricted_two_opt_max_span: int = 8,
         max_flip_subsequence_length: int = 5,
         max_inversion_segment_length: int = 5,
+        segment_len_val: int | None = None,
         rl_alpha: float = 0.3,
         rl_gamma: float = 0.5,
         rl_epsilon: float = 0.5,
@@ -56,6 +57,7 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
             restricted_two_opt_max_span=restricted_two_opt_max_span,
             max_flip_subsequence_length=max_flip_subsequence_length,
             max_inversion_segment_length=max_inversion_segment_length,
+            segment_len_val=segment_len_val,
             q_learning_cfg=q_learning_cfg,
             marl_params=marl_params,
             best_known_distance=best_known_distance,
@@ -70,6 +72,8 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
         self.negative_reward_scale = max(1.0, negative_reward_scale)
         self.operator_failure_limit = max(1, operator_failure_limit)
         self.rl_local_search_cfg = rl_local_search_cfg
+        # Track time to build the initial solution
+        self.initial_solution_time: float | None = None
 
         if rl_local_search_cfg is not None:
 
@@ -200,11 +204,10 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
         if operators is None:
             operators = [
                 self._two_opt_first_improvement,
-                self._restricted_two_opt_first_improvement,
-                self._limited_subsequence_flip_first_improvement,
-                self._one_insertion_first_improvement,
+                self._one_move_insertion_improvement,
+                self._three_opt_first_improvement,
                 self._two_exchange_first_improvement,
-                self._double_bridge_first_improvement,
+                #self._double_bridge_first_improvement,
             ]
 
         named_ops = [(op.__name__, op) for op in operators]
@@ -344,6 +347,8 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
         method_key = self.method.lower() if isinstance(self.method, str) else "random"
         self.best_known_hit_iteration = None
 
+        init_start = time.time()
+
         if method_key in {"greedy", "nearest_neighbour", "nearest_neighbor", "nrnbr"}:
             seed = start if start is not None else random.randint(0, self.n_cities - 1)
             tour = nearest_neighbour_tour(self.graph, start=seed)
@@ -397,6 +402,7 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
                 marl_learning_rate=float(params.get("marl_learning_rate", 0.4)),
                 marl_softmax_beta=float(params.get("marl_softmax_beta", 2.0)),
                 marl_epsilon=float(params.get("marl_epsilon", 0.15)),
+                log=self.logger,
             )
             if not population:
                 raise ValueError("MARL initialisation produced no candidates.")
@@ -426,6 +432,13 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
                 f"Unknown initialisation method '{self.method}'. "
                 "Supported values: 'greedy', 'nearest_neighbour', 'random', 'q_learning', 'marl'."
             )
+
+        self.initial_solution_time = time.time() - init_start
+        self.logger.info(
+            "Initial solution built in %.4f seconds (method=%s)",
+            self.initial_solution_time,
+            method_key,
+        )
 
         total_distance = float(total_distance)
         self.initial_solution = total_distance

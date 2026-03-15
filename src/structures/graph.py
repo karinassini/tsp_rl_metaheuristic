@@ -145,7 +145,7 @@ class Graph:
                     f"Unsupported EDGE_WEIGHT_FORMAT '{edge_weight_format}'."
                 )
 
-        elif edge_weight_type in {"EUC_2D", "CEIL_2D"}:
+        elif edge_weight_type in {"EUC_2D", "CEIL_2D", "ATT"}:
             if len(node_coords) != dimension:
                 raise ValueError(
                     f"Expected {dimension} node coordinates, got {len(node_coords)}."
@@ -166,11 +166,20 @@ class Graph:
                 xi, yi = coords[i]
                 for j in range(i + 1, dimension):
                     xj, yj = coords[j]
-                    dist = math.sqrt((xi - xj) ** 2 + (yi - yj) ** 2)
+                    dx = xi - xj
+                    dy = yi - yj
+                    dist = math.sqrt(dx * dx + dy * dy)
+
                     if edge_weight_type == "EUC_2D":
                         value = int(round(dist))
-                    else:  # CEIL_2D
+                    elif edge_weight_type == "CEIL_2D":
                         value = math.ceil(dist)
+                    else:  # ATT (pseudo-Euclidean as in TSPLIB)
+                        r = math.sqrt((dx * dx + dy * dy) / 10.0)
+                        t = int(round(r))
+                        if t < r:
+                            t += 1
+                        value = t
                     row, col = (i, j) if i <= j else (j, i)
                     matrix[row, col] = value
                     # matrix[j, i] = value

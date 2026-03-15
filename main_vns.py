@@ -1,6 +1,7 @@
 import sys
 import os
 from itertools import product
+from dataclasses import asdict
 
 from src.structures.graph import Graph
 from src.solver.greedy_solver import TSPSolver
@@ -10,7 +11,7 @@ from src.solver.vns_solver import VNS_Solver
 from src.solver.vns_solver_q_learning import VNS_Solver_Q_Learnings
 from utils.plot_comparison_from_json import SolutionComparisonPlotter
 from datetime import datetime
-from config import VNSMainConfig
+from config import VNSMainConfig, VNSConfig
 
 # Add the 'src' directory to the Python module search path
 src_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "src")
@@ -46,6 +47,7 @@ def test_vns_solver(
     q_learning_cfg=None,
     rl_local_search_cfg=None,
     marl_params=None,
+    vns_solver_cfg: VNSConfig | None = None,
 ):
     """Run a single VNS experiment and persist metrics/plots.
 
@@ -81,10 +83,14 @@ def test_vns_solver(
         "best_known_distance": saver.best_total_distance,
         "timestamp": timestamp,
     }
+    if vns_solver_cfg is not None:
+        solver_kwargs.update(asdict(vns_solver_cfg))
     if method.lower() == "marl":
         solver_kwargs["marl_params"] = marl_params
     if local_searcher is VNS_Solver_Q_Learnings and rl_local_search_cfg is not None:
         solver_kwargs["rl_local_search_cfg"] = rl_local_search_cfg
+
+    # For the RL variant we also want timing data on initial solution, already captured in the solver instance.
 
     solver = local_searcher(**solver_kwargs)
     solver_name = type(solver).__name__
@@ -115,6 +121,7 @@ def test_vns_solver(
         iterations_executed=solver.iterations_executed,
         start_city_initialization=start_city,
         initial_solution=solver.initial_solution,
+        initial_solution_time=solver.initial_solution_time,
         solver_params=solver_params,
     )  # saves as JSON
     # saver.plot_solution_graph(tour, graph.get_distance_matrix(), filename=f"outputs/solutions/{name_without_extension}/vns/solution_graph.png")
@@ -202,6 +209,7 @@ def main():
                 q_learning_cfg=config.q_learning_cfg,
                 rl_local_search_cfg=config.rl_local_search_cfg,
                 marl_params=config.marl_config_kwargs,
+                vns_solver_cfg=config.vns_solver_cfg,
             )
 
     # print(f"outputs/solutions/{instance.split('.')[0]}/")
