@@ -114,6 +114,12 @@ def plot_time_to_target_collection(
         "#17becf",
     ]
 
+    # Stable colors per solver/method label to keep plots consistent across instances.
+    fixed_colors = {
+        "VNS_Solver": "#1f77b4",
+        "VNS_Solver_Q_Learnings": "#d62728",
+    }
+
     for json_path in _iter_json_files(sources, start_filters=start_filters):
         with json_path.open("r", encoding="utf-8") as fp:
             payload = json.load(fp)
@@ -193,12 +199,15 @@ def plot_time_to_target_collection(
                 color = custom_color
             else:
                 color_key = series_solver if group_by_method else series_method
-                if color_key not in color_map:
-                    color_map[color_key] = next(color_cycle)
-                color = color_map[color_key]
+                color = fixed_colors.get(color_key)
+                if color is None:
+                    if color_key not in color_map:
+                        color_map[color_key] = next(color_cycle)
+                    color = color_map[color_key]
             linewidth = style.get("linewidth", 2)
             marker = style.get("marker", "x")
-            label = style.get("label") or series_method
+            # Legend should show only the initialization method (e.g., marl or rcl), without start_* suffixes
+            label = series_method
 
             first_time = float(times[0])
             min_time = first_time if min_time is None else min(min_time, first_time)
@@ -231,9 +240,9 @@ def plot_time_to_target_collection(
 
         title_suffix = "start null" if start_label == "null" else f"start {start_label}" if start_label != "all" else "all starts"
         if group_by_method:
-            ax.set_title(f"Time to Target - {instance_name} (method {method_name}, {title_suffix})")
+            ax.set_title(f"Time to Target - {instance_name}")# (method {method_name}, {title_suffix})")
         else:
-            ax.set_title(f"Time to Target - {instance_name} ({solver_name}, {title_suffix})")
+            ax.set_title(f"Time to Target - {instance_name}") #({solver_name}, {title_suffix})")
         ax.set_xlabel("Time to target (s)")
         ax.set_ylabel("Cumulative probability")
         ax.set_ylim(0, 1)

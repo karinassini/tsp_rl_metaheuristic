@@ -1,0 +1,9 @@
+setuptools
+wheel
+numpy
+networkx>=2.8.0,<3.0.0
+matplotlib
+black
+gurobipy
+pandas==2.3.2
+plotly

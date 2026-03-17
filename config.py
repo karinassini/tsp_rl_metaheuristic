@@ -45,13 +45,13 @@ class VNSMainConfig:
 	"""Top-level configuration for running VNS experiments via ``main.py``."""
 
 	# rodar o gr48 novamente
-	instances: List[str] = field(default_factory=lambda: ["ch150.tsp"]) # swiss42.tsp, berlin52.tsp, gr48.tsp, kroA100.tsp, kroB100.tsp, ch150.tsp, gr120.tsp, si175.tsp, pr226.tsp, a280.tsp,
+	instances: List[str] = field(default_factory=lambda: ["pr226.tsp", "a280.tsp"]) # swiss42.tsp, berlin52.tsp, gr48.tsp, kroA100.tsp, kroB100.tsp, ch150.tsp, gr120.tsp, si175.tsp, pr226.tsp, a280.tsp,
 	method: List[str] = field(default_factory=lambda: ["rcl", "marl"]) # q_learning, random , nearest_neighbor, marl
 	start_city: int | None = None
 	iteration_max: Optional[int] = 800
-	max_non_improving_iterations: int = 300 #300 small
+	max_non_improving_iterations: int = 200 #300 small
 	repeats: int = 30
-	k_max: int = 3 # 4 small
+	k_max: int = 4 # 4 small
 	save_dir: Optional[str] = None
 	vns_solver_cfg: VNSConfig = field(default_factory=VNSConfig)
 	local_search: List[str] = field(default_factory=lambda: ["VNS_Solver_Q_Learnings", "VNS_Solver"])  # Options: "VNS_Solver", "VNS_Solver_Q_Learnings"
@@ -60,8 +60,8 @@ class VNSMainConfig:
 	marl_config_kwargs: Dict[str, Any] = field(
 		default_factory=lambda: {
 			"population_size": 50, #small and medium 100, large 50
-			"marl_iterations": 5000, #small 10000
-			"marl_agents": 5, #small 5, super large 3
+			"marl_iterations": 5000, #small 10000, large
+			"marl_agents": 4, #small 5, super large 3
 			"marl_epsilon": 0.15,
 			"marl_softmax_beta": 3.0,
 			"marl_learning_rate": 0.70,
