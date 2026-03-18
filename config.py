@@ -45,8 +45,8 @@ class VNSMainConfig:
 	"""Top-level configuration for running VNS experiments via ``main.py``."""
 
 	# rodar o gr48 novamente
-	instances: List[str] = field(default_factory=lambda: ["pr226.tsp", "a280.tsp"]) # swiss42.tsp, berlin52.tsp, gr48.tsp, kroA100.tsp, kroB100.tsp, ch150.tsp, gr120.tsp, si175.tsp, pr226.tsp, a280.tsp,
-	method: List[str] = field(default_factory=lambda: ["rcl", "marl"]) # q_learning, random , nearest_neighbor, marl
+	instances: List[str] = field(default_factory=lambda: ["pr226.tsp"]) # swiss42.tsp, berlin52.tsp, gr48.tsp, kroA100.tsp, kroB100.tsp, ch150.tsp, gr120.tsp, si175.tsp, pr226.tsp, a280.tsp,
+	method: List[str] = field(default_factory=lambda: ["marl"]) # q_learning, random , nearest_neighbor, marl
 	start_city: int | None = None
 	iteration_max: Optional[int] = 800
 	max_non_improving_iterations: int = 200 #300 small
