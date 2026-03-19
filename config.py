@@ -54,7 +54,7 @@ class VNSMainConfig:
 	k_max: int = 4 # 4 small
 	save_dir: Optional[str] = None
 	vns_solver_cfg: VNSConfig = field(default_factory=VNSConfig)
-	local_search: List[str] = field(default_factory=lambda: ["VNS_Solver_Q_Learnings", "VNS_Solver"])  # Options: "VNS_Solver", "VNS_Solver_Q_Learnings"
+	local_search: List[str] = field(default_factory=lambda: ["VNS_Solver"])  # Options: "VNS_Solver", "VNS_Solver_Q_Learnings"
 	q_learning_cfg: QLearningConfig = field(default_factory=QLearningConfig)
 	rl_local_search_cfg: RLLocalSearchConfig = field(default_factory=RLLocalSearchConfig)
 	marl_config_kwargs: Dict[str, Any] = field(
