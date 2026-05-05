@@ -1,0 +1,774 @@
+% This is samplepaper.tex, a sample chapter demonstrating the
+% LLNCS macro package for Springer Computer Science proceedings;
+% Version 2.21 of 2022/01/12
+%
+\documentclass[runningheads]{llncs}
+%
+\usepackage[T1]{fontenc}
+% T1 fonts will be used to generate the final print and online PDFs,
+% so please use T1 fonts in your manuscript whenever possible.
+% Other font encondings may result in incorrect characters.
+%
+\usepackage{graphicx}
+% Used for displaying a sample figure. If possible, figure files should
+% be included in EPS format.
+%
+% If you use the hyperref package, please uncomment the following two lines
+% to display URLs in blue roman font according to Springer's eBook style:
+%\usepackage{color}
+%\renewcommand\UrlFont{\color{blue}\rmfamily}
+%\urlstyle{rm}
+%
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+%\usepackage[authoryear]{natbib}
+%\setcitestyle{numbers,square,comma}
+\usepackage{pifont}
+\newcommand{\cmark}{\ding{51}} % check mark
+\newcommand{\xmark}{\ding{55}} % cross mark
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{longtable}
+\usepackage{placeins}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage[hidelinks]{hyperref}
+\usepackage{caption}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%% Para gerar PDF de revisão
+%\usepackage{setspace}
+%\doublespacing
+%\setlength{\hoffset}{-1in}      %+1in margem esquerda
+%\setlength{\voffset}{-1in}      %+1in margem superior
+%\setlength{\topmargin}{2cm}     %dist cx cabealho 'a margem superior
+%\setlength{\headheight}{2.5cm}       %altura da cx cabealho
+%\setlength{\headsep}{0.2cm}       %dist cx cabealho 'a cx texto
+%\setlength{\textwidth}{16cm}        %largura da cx texto
+%\setlength{\textheight}{20.5cm}     %altura da cx texto
+%\setlength{\oddsidemargin}{2.5cm}   %dist margem esquerda 'a cx texto das pg                                %impares
+%\setlength{\evensidemargin}{2.5cm}  %dist margem esquerda 'a cx texto das pg                                %pares
+%\setlength{\marginparwidth}{0in}    %largura da cx margem
+%\setlength{\marginparsep}{0in}      %dist da cx margem 'a cx texto
+%%\setlength{\paperwidth}{30cm}      %largura do papel
+%%\setlength{\paperheight}{29,7cm}   %altura do papel
+%\setlength{\footskip}{28pt}         %dist da cx margem 'a cx texto
+%\setlength{\marginparwidth}{0in}
+%%%%%%%%%%%%%%%%%%%%%%%% Para gerar PDF de revisão
+
+
+\captionsetup{
+  labelfont=bf,
+  textfont=normalfont,
+  labelsep=period
+}
+
+
+\begin{document}
+%
+\title{A Reinforcement Learning–Guided General Variable Neighborhood Search for the Traveling Salesman Problem}
+\titlerunning{RL-GVNS for the Traveling Salesman Problem}
+%
+%\titlerunning{Abbreviated paper title}
+% If the paper title is too long for the running head, you can set
+% an abbreviated paper title here
+%
+\author{Karina Assini Andreatta\inst{1}\orcidID{0009-0001-7805-2594} \and
+Maria Claudia Silva Boeres\inst{1}\orcidID{0000-0001-9801-2410} \and
+Renato Elias Nunes de Moraes\inst{1}\orcidID{0000-0001-5538-0504}}
+%
+\authorrunning{K. Andreatta et al.}
+% First names are abbreviated in the running head.
+% If there are more than two authors, 'et al.' is used.
+%
+\institute{Federal University of Espírito Santo (UFES): Av. Fernando Ferrari 514, Goiabeiras, Vitória – ES, 29075-910, Brazil\\
+\email{karinassini@gmail.com}\\
+\url{https://www.ufes.br}}
+%
+\maketitle              % typeset the header of the contribution
+%
+
+
+
+\begin{abstract}
+This paper proposes RL-GVNS, a reinforcement learning– guided General Variable Neighborhood Search framework for the Traveling Salesman Problem (TSP), which introduces adaptivity in both the construction and intensification phases. The proposed RL-GVNS extends the classical GVNS by integrating a multi-agent reinforcement learning (MARL) initializer and a reinforcement learning–driven Variable Neighborhood Descent, where neighborhood operators are selected online using Q-learning. Unlike standard GVNS, which relies on a fixed ordering of local search operators, RL-GVNS dynamically adapts its search behavior based on performance feedback, enabling an effective response to non-stationary search dynamics.
+Although all evaluated configurations, combining classical or MARL-based initialization with standard GVNS or RL-GVNS, perform similarly in small instances, learning-enhanced variants show superior robustness as instance size increases. In particular, the combined MARL + RL-GVNS configuration achieves lower average gaps with respect to the best-known solution, higher best-known solution hit rates, and, in most cases, comparable or reduced execution times relative to non-adaptive GVNS baselines.
+
+\keywords{General Variable Neighborhood Search \and Reinforcement Learning \and Traveling Salesman Problem.}
+\end{abstract}
+%
+%
+%
+\section{Introduction}
+
+The Traveling Salesman Problem (TSP) is a classical benchmark in combinatorial optimization. Given the pairwise travel costs between cities, the goal is to find a minimum-cost Hamiltonian tour. Although simply defined, TSP is NP-hard, limiting the applicability of exact methods to medium- and large-scale instances \cite{W2324108981}.
+The TSP exemplifies a broader class of complex combinatorial optimization problems in which the search space is discrete and characterized by a large number of local optima. As the size of the problem increases, exact methods tend to become computationally expensive and, in some cases, impractical. This limitation motivates the use of metaheuristic approaches, which yield high-quality solutions at practical computational time \cite{osman1996meta}. 
+
+Among these, Variable Neighborhood Search (VNS), proposed in \cite{mladenovic1997vns}, leverages this trade-off by relying on a systematic exploration of multiple neighborhood structures. The underlying principle of VNS is that a solution that is locally optimal with respect to one neighborhood structure may cease to be optimal when evaluated under a different neighborhood. To exploit this property, the method alternates between diversification and intensification by changing the neighborhood during the search process. Diversification is performed through a shaking phase, which applies controlled perturbations to move the search away from the current solution, while intensification is achieved by applying local search procedures within a selected neighborhood to refine the solution and reach a local optimum \cite{KARIMIMAMAGHAN2022393}.
+%\cite{Hansen2014}***. 
+
+In General Variable Neighborhood Search (GVNS), intensification is commonly implemented through Variable Neighborhood Descent (VND) \cite{HANSEN2017423}. However, the fixed ordering of local search operators in standard VND leads to static search behavior, motivating adaptive neighborhood selection strategies. Although GVNS has been successfully applied to computationally hard optimization problems that arise in practical settings, such as routing, scheduling, and network design \cite{DASILVA2010203,MENENDEZ201782,VENKATESH2018189,KARAKOSTAS2019263,KARAKOSTAS2020106913}, recent studies have increasingly explored the integration of machine learning techniques to guide metaheuristic decisions, including promising results obtained through reinforcement learning–based operator adaptation \cite{QUEIROZDOSSANTOS20144939,TODOSIJEVIC2016873,KARAKOSTAS2022108746}. 
+
+Despite recent progress, most approaches focus on population‑based or evolutionary frameworks \cite{JEONG2025113930,Alipour2018,ruan2024rlga_tsp}, or address individual search components using static or weakly adaptive rules. Neighborhood‑based metaheuristics for the TSP rely mainly on fixed operator selection \cite{DASILVA2010203,VENKATESH2018189,HORE201883}, limiting their adaptability to the evolving search space. This limitation becomes particularly relevant in the context of the TSP, whose search dynamics is inherently non‑stationary. Operators that contribute to improving the solution in the early stages of the search may lose relevance as the algorithm converges to high‑quality local optima \cite{KARIMIMAMAGHAN2022393}. 
+
+
+Table~\ref{tab:comparison} shows that many approaches incorporate adaptability at different stages of the search process. In contrast, the proposed work introduces adaptability primarily in the local search step, using reinforcement learning to dynamically guide the order in which operators are applied within the VND framework through an Adaptive Operator Selection (AOS) mechanism~\cite{fialho2010analyzing}. By learning the characteristics and effectiveness of operators throughout the search, the method enhances intensification while preserving robustness, distinguishing it from GVNS-based approaches that rely on fixed operator schemes.
+In addition, the shaking phase has been redesigned to avoid static behavior. The shaking process contains an element of adaptability in the sense that, rather than relying on a single fixed perturbation, multiple shaking operators are employed within each neighborhood. Although this mechanism does not constitute operator selection in the learning-based sense, it introduces a complementary approach that improves diversification and reduces the sensitivity to manual parameter tuning.
+
+
+
+% ---------- Table ----------
+\begin{table*}[ht]
+\centering
+\caption{
+Comparative analysis of related works.
+Columns indicate: 
+(1) use of VNS or GVNS; 
+(2) population-based approach; 
+(3) explicit parameter calibration or control; 
+(4) adaptive operator selection (AOS); 
+(5) adaptive shaking mechanism; 
+(6) availability of open-source implementation.
+}
+\label{tab:comparison}
+\begin{tabular}{lcccccc}
+\hline
+\textbf{Author} & \textbf{(1)} & \textbf{(2)} & \textbf{(3)} & \textbf{(4)} & \textbf{(5)} & \textbf{(6)} \\
+\hline
+da Silva et al.~(2010)~\cite{DASILVA2010203}       
+& \cmark & \xmark & --      & \xmark & \xmark & -- \\
+
+Queiroz dos Santos et al.~(2014)~\cite{QUEIROZDOSSANTOS20144939} 
+& \cmark & \xmark & --      & \cmark & \xmark & -- \\
+
+Todosijevic et al.~(2016)~\cite{TODOSIJEVIC2016873}      
+& \cmark & \xmark & --      & \cmark & \xmark & -- \\
+
+Menendez et al.~(2017)~\cite{MENENDEZ201782} 
+& \cmark & \xmark & --      & \xmark & \xmark & -- \\
+
+Venkatesh et al.~(2018)~\cite{VENKATESH2018189}        
+& \cmark & \xmark & --      & \xmark & \xmark & -- \\
+
+Hore et al.~(2018)~\cite{HORE201883}              
+& \cmark & \xmark & --      & \xmark & \xmark & -- \\
+
+Alipour et al.~(2018)~\cite{Alipour2018}            
+& \xmark & \cmark & --      & \xmark & \xmark & -- \\
+
+Karakostas et al.~(2019)~\cite{KARAKOSTAS2019263} 
+& \cmark & \xmark & Partial & \xmark & \xmark & -- \\
+
+Karakostas et al.~(2020)~\cite{KARAKOSTAS2020106913}         
+& \cmark & \xmark & --      & \xmark & \xmark & -- \\
+
+Karakostas et al.~(2022)~\cite{KARAKOSTAS2022108746}   
+& \cmark & \xmark & --      & \cmark & \cmark & -- \\
+
+Ruan et al.~(2024)~\cite{ruan2024rlga_tsp}               
+& \xmark & \cmark & --      & \xmark & \xmark & -- \\
+
+Jeong et al.~(2025)~\cite{JEONG2025113930}             
+& \xmark & \cmark & --      & \cmark & \xmark & -- \\
+
+\hline
+\textbf{This work}               
+& \cmark & \xmark & \cmark & \cmark & \cmark & \cmark \\
+\hline
+\end{tabular}
+\end{table*}
+
+The remainder of the paper is structured as follows. 
+Section~\ref{sec:2} introduces the TSP and reviews the GVNS framework. 
+Section~\ref{sec:3} describes the proposed RL-GVNS method, including adaptive initialization, shaking strategy, and local search driven by reinforcement learning. 
+Computational experiments and results are presented in Section~\ref{sec:computational_experiments}. 
+Finally, Section~\ref{sec:5} summarizes the main findings and discusses directions for future work.
+
+\section{Preliminaries}
+\label{sec:2}
+
+\subsection{Traveling Salesman Problem (TSP)}
+
+The Traveling Salesman Problem (TSP) is a canonical problem in combinatorial optimization and a standard benchmark for heuristic and metaheuristic algorithms \cite{osman1996meta}. In this work, the symmetric variant is considered and defined on a complete weighted graph $G=(V,E)$, where $V=\{1,2,\ldots,n\}$ represents the set of cities and each edge $(i,j)\in E$ is associated with a non-negative travel cost $c_{ij}$, with $c_{ij}=c_{ji}$ for all $i,j\in V$. 
+
+A feasible solution is a Hamiltonian cycle, represented by a permutation $\pi=(\pi_1,\pi_2,\ldots,\pi_n)$ of cities, where $\pi_k$ denotes the city visited at position $k$ in the tour. In closed tour representations, the starting city may appear duplicated at the end of the sequence. However, the size of the problem $n$ is defined as the number of distinct cities in the tour after removing the duplicated terminal node in the closed representation. The objective is to find a permutation that minimizes the total travel cost along the cycle, including the return to the starting city. Since the size of the search space increases factorially with $n$, exhaustive enumeration quickly becomes infeasible, motivating the use of heuristic and metaheuristic approaches that explore neighborhoods defined over permutations to obtain high-quality solutions.
+
+\subsection{General Variable Neighborhood Search (GVNS)}
+
+The GVNS framework operates on a predefined set of neighborhoods and combines systematic diversification with a deterministic 
+intensification mechanism based on VND \cite{HANSEN2017423}. Within GVNS, the VND procedure 
+acts as the main local search phase, where neighborhoods are explored sequentially according to a fixed 
+order. Whenever an improvement move is identified, the incumbent solution is updated and the search restarts from the first neighborhood. The procedure advances to the next neighborhood until no further improvement can be obtained, at which point the solution is considered locally optimal with respect to the available structures.
+
+In GVNS, this intensification step is integrated into an outer search loop that alternates between shaking and local improvement, enabling controlled exploration of increasingly distant regions of the solution space. 
+Additional details on GVNS are provided in~\cite{HANSEN2017423,hansen2008vns}.
+
+
+
+\subsection{Adaptive Operator Selection (AOS)}
+
+
+Adaptive Operator Selection (AOS)~\cite{fialho2010analyzing} provides a control layer that regulates the choice of search operators according to their observed contribution during the search. Rather than prescribing a specific learning strategy, it frames operator selection itself as a decision problem, delegating the underlying adaptation mechanism to the method in use. Within the machine learning in metaheuristics (ML-in-MH) paradigm, reinforcement learning has therefore been adopted as a practical means of implementing AOS in search processes that evolve over time~\cite{KARIMIMAMAGHAN2022393}.
+
+In permutation-based problems such as the TSP, adaptive operator selection has been mainly investigated in population-oriented metaheuristics, including evolutionary algorithms and adaptive large neighborhood search~\cite{QUEIROZDOSSANTOS20144939,Alipour2018}. In contrast, trajectory-based approaches, such as VNS and GVNS, typically rely on predefined operator schedules throughout the search process. 
+
+Despite the extensive literature on neighborhood design for the TSP, the dynamic selection of operators during the search has received comparatively limited attention, particularly in neighborhood-based metaheuristics based on single-solution.
+
+\subsubsection{Reinforcement Learning}
+
+(RL)~\cite{sutton1998reinforcement} is a method in which decisions are adapted over time based on feedback obtained from previous results. 
+Rather than relying on predefined rules, the decision process progressively favors actions that have previously led to improvements, while discouraging those associated with ineffective or detrimental moves. 
+In the context of neighborhood-based metaheuristics, this allows the selection of local search operators to be guided by their observed contribution to solution quality during the search.
+
+From this perspective, operator selection can be interpreted as an adaptive decision process in which local search operators correspond to actions, and performance feedback provides the learning signal used to guide subsequent choices. 
+The contribution of each operator is evaluated through reward functions that reflect its impact on search progress, allowing the learning of a policy that accounts for delayed effects and variations in effectiveness along the search trajectory.
+
+Within this formulation, AOS can be viewed as an online control problem in which operator utilities are updated from observed rewards, enabling the selection of moves that remain effective under changing search conditions. 
+As described in~\cite{fialho2010analyzing}, this adaptation cycle involves performance evaluation, reward attribution, credit assignment, and operator selection. In the proposed method, credit assignment and selection are implemented through a Q-learning strategy~\cite{Wauters2013}.
+
+
+\subsubsection{Q-learning}
+
+Q-learning is an RL method that assigns a value to each possible action according to its expected outcome in a given state. 
+These values are updated iteratively from the observed rewards, allowing the selection of actions that lead to improved results over time without requiring an explicit model of the underlying process.
+
+The learning process is commonly formalized as a Markov Decision Process (MDP) defined by the tuple $(\mathcal{S}, \mathcal{A}, P, R)$, where $\mathcal{S}$ denotes the state space, $\mathcal{A}$ the action set, $P$ the transition probabilities, and $R$ the reward function. At each decision step $t$, the agent observes the current state $s_t \in \mathcal{S}$, selects an action $a_t \in \mathcal{A}$, receives a reward $r_t$, and transitions to a new state $s_{t+1}$ \cite{watkins1989learning}.
+
+Q-learning estimates the action--value function $Q(s,a)$, representing the expected discounted cumulative reward of selecting action $a$ in state $s$ and following the learned policy thereafter. The estimates are updated iteratively according to the Bellman optimality:
+\begin{equation}
+\label{eq:bellman}
+Q(s_t,a_t) \leftarrow Q(s_t,a_t) +
+\alpha \left[
+r_t + \gamma \max_{a \in \mathcal{A}} Q(s_{t+1}, a) - Q(s_t,a_t)
+\right],
+\end{equation}
+where $\alpha \in (0.0,1.0]$ is the learning rate and $\gamma \in [0.0,1.0)$ is the discount factor.
+
+Under standard conditions, that is, bounded rewards, satisfaction of the Markov property, and sufficient exploration of state--action pairs, Q-learning is guaranteed to converge with probability one to the optimal action--value function \cite{sutton1998reinforcement,watkins1989learning}.
+
+
+\section{Proposed Algorithm}
+\label{sec:3}
+The proposed algorithm extends GVNS with reinforcement learning–driven local search, using continuous credit assignment to adapt operator selection to the evolving search landscape. The Algorithm~\ref{alg:gvns_rl} receives as input an initialization method $\texttt{InitMethod}$, an iteration limit $I_{\max}$, and a maximum neighborhood index $k_{\max}$. The initialization method controls how the initial tour is constructed and can assume one of two alternatives: a classical restricted candidate list nearest‑neighbor heuristic (\textsc{RCL}) or a learning‑based multi‑agent reinforcement learning initializer (\textsc{MARL}), both described in detail in Section~\ref{subsec:initialization}.
+
+The algorithm starts by generating an initial tour $x$ according to the selected initialization strategy and computing its objective value $c = f(x)$ (lines~1--2). The search then proceeds within an outer loop limited to $I_{\max}$ iterations (lines~3-17). At the beginning of each iteration, the neighborhood index $k$ is reset to 1 (line~4), and neighborhoods of increasing size are explored within an inner loop (lines~5--16).
+
+For a given neighborhood size $k$, a shaken solution $x'$ is generated to promote diversification (line~6) and subsequently intensified through a local search procedure driven by reinforcement learning, which returns an improved candidate solution $x''$ and its associated cost $c''$ (lines~7--8). If the candidate solution improves on the incumbent ($c'' < c$, line~9), the incumbent solution is updated and the neighborhood index is reset to $k = 1$, restarting the search from the smallest neighborhood to intensify the exploration around the improved tour (lines~10--12). Otherwise, the neighborhood index is incremented to explore larger neighborhoods and increase diversification (line~14). After completing all iterations, the algorithm returns the best tour found during the search.
+
+\begin{algorithm}[ht]
+\caption{GVNS with RL-driven Local Search}
+\label{alg:gvns_rl}
+\begin{algorithmic}[1]
+\Require initialization method \texttt{InitMethod}, iteration limit $I_{\max}$, neighborhood limit $k_{\max}$
+\State $x \gets \textsc{Initialize}(\texttt{InitMethod})$
+\State $c \gets f(x)$
+\For{$i = 1$ to $I_{\max}$}
+  \State $k \gets 1$
+  \While{$k \le k_{\max}$}
+    \State $x' \gets \textsc{Shake}(x,k)$
+    \State $c' \gets f(x')$
+    \State $(x'',c'') \gets \textsc{RLLocalSearch}(x',c')$
+    \If{$c'' < c$}
+      \State $x \gets x''$
+      \State $c \gets c''$
+      \State $k \gets 1$ \Comment{restart from the first neighborhood}
+    \Else
+      \State $k \gets k + 1$
+    \EndIf
+  \EndWhile
+\EndFor
+\State \Return $x$
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Initialization}
+\label{subsec:initialization}
+The quality of the initial solution plays a critical role in the performance of trajectory‑based metaheuristics for the TSP, as it directly influences the regions of the search space explored in the early stages of the algorithm \cite{Perttunen1994}. Classical construction procedures for the TSP often generate an initial tour through deterministic or partially randomized heuristics such as nearest‑neighbor variants or restricted candidate list (RCL) methods~\cite{Basu2008}. 
+These approaches build a solution sequentially based on locally available information, without revisiting earlier construction decisions once the tour has been formed.
+
+In this work, two initialization procedures are employed. 
+The first corresponds to a nearest‑neighbor heuristic augmented with an RCL mechanism, which introduces controlled variability in the selection of candidate cities at each construction step~\cite{Basu2008}. 
+The second adopts a learning‑based strategy inspired by multi‑agent reinforcement learning (MARL)~\cite{Alipour2015}, where the tour is assembled incrementally using action‑value estimates that are updated throughout the construction process according to the evolving partial solution.
+
+The learning mechanism is adapted to the single‑solution setting of GVNS, rather than the population‑based framework adopted in \cite{Alipour2015}, with the objective of producing a small set of high‑quality candidate tours and a strong starting solution. Unlike MARL‑based construction methods that update values only after complete tour evaluations, the proposed initializer employs a Q‑learning formulation grounded in the Bellman optimality principle (Equation~\ref{eq:bellman}). Incorporating both immediate and delayed rewards allows value estimates to account for the influence of early construction choices on subsequent search behavior, supporting consistent updates during tour generation.
+
+Both initialization procedures are implemented in GVNS via the parameter $\texttt{InitMethod}$ in Algorithm~\ref{alg:gvns_rl}, so that their effects can be examined under the same search configuration.
+
+
+
+
+% ==========================================================
+% Adaptive Shaking Strategy
+% ==========================================================
+\subsection{Adaptive Shaking Strategy}
+\label{subsec:shaking}
+
+In GVNS, diversification is achieved through a shaking phase that applies random perturbations to the incumbent solution, allowing transitions to neighboring regions of the search space~\cite{hansen2008vns}. 
+In the proposed adaptive shaking formulation, the neighborhood index $k$ is associated with the intensity of the perturbation by defining, at each shaking level, a set of admissible operators of increasing strength from which a move is randomly sampled.
+
+The magnitude of the applied perturbation is controlled through operator parameters expressed as bounded functions of the size of the instance $n$. 
+Consequently, the shaking phase operates on a set of established TSP perturbation operators, including segment relocations, edge exchanges, non-sequential perturbations, and block-based rearrangements, whose parameters scale with problem size. 
+
+In particular, Or-opt relocations~\cite{Babin2007}, $k$-exchange moves~\cite{MARX200831}, and cross-exchange operations~\cite{taillard1997tabu} are applied using intensity-dependent parameterizations, while parameter-free operators such as double-bridge move~\cite{bentley1992fast,hoos2018stochastic} are employed at higher shaking levels. Additional variability is introduced through segment shuffling and block recombination mechanisms~\cite{Papalitsas}.
+
+For segment-based operators, such as Or-opt~\cite{Babin2007} and cross-exchange~\cite{taillard1997tabu}, segment lengths are defined as bounded fractions of $n$, clipped between predefined minimum and maximum values. 
+As a result, lower shaking levels modify short segments even in large instances, whereas higher levels operate on proportionally larger portions of the tour. 
+Similarly, for exchange-based operators (e.g., $k$-exchange~\cite{MARX200831}), the number of exchanged nodes increases with $n$, while non-parametric operators such as double-bridge are applied without modification~\cite{bentley1992fast,hoos2018stochastic}.
+
+
+%Under this adaptive parameterization, the following perturbation operators are employed:
+
+%\begin{itemize}
+%  \item \textbf{Or-opt (segment relocation).} Relocates a contiguous segment of cities to a different position in the tour~\cite{Babin2007}. Under \emph{small} intensity, short segments (e.g., 1--2 cities) are moved, with segment length increasing under stronger settings.
+
+%  \item \textbf{$k$-exchange.} Removes $k$ edges and reconnects the resulting paths to form a new feasible tour~\cite{MARX200831}. The value of $k$ is kept small at lower intensities (e.g., $k \in \{2,3\}$) and increases for \emph{medium} and \emph{large} settings.
+
+%  \item \textbf{Cross-exchange.} Swaps two disjoint tour segments while preserving feasibility. Segment lengths scale with the perturbation intensity, yielding progressively more disruptive rearrangements~\cite{taillard1997tabu}.
+
+%  \item \textbf{Double-bridge.} Applies a non‑sequential four‑edge exchange that strongly disrupts the tour structure. This operator is parameter‑free and is typically used at higher shaking levels to escape deep local optima~\cite{bentley1992fast,hoos2018stochastic}.
+
+%  \item \textbf{Shuffle segment.} Randomly permutes the cities within a contiguous segment, with segment length determined by the intensity level.
+
+ % \item \textbf{Block recombination.} Selects multiple contiguous blocks and recombines them in a different order, introducing large‑scale structural changes while maintaining tour feasibility~\cite{Papalitsas}.
+%\end{itemize}
+
+% ----------------------------------------------------------
+
+Formally, the adaptive shaking procedure (line~6 of Algorithm~\ref{alg:gvns_rl}) is summarized in Algorithm~\ref{alg:adaptive_shaking}. 
+At each shake step, the neighborhood $\mathcal{N}_k(x)$ is implicitly defined by a set of perturbation operators $\mathcal{O}_k$ associated with the shaking level $k$ (lines~3–11), whose parameters are scaled according to the size of the instance $n$ (lines~1–2). 
+The perturbation is then obtained by sampling an operator from $\mathcal{O}_k$ and applying it to the incumbent solution (line~14), with repeated attempts allowed to avoid trivial modifications (lines~12–18). The set of operators $\mathcal{O}_k$ is indexed by $k$ to induce progressively stronger perturbations, ranging from mild structural changes to larger-scale tour rearrangements~\cite{bentley1992fast,hoos2018stochastic}.
+
+
+\begin{algorithm}[ht]
+\caption{Adaptive Shaking Procedure}
+\label{alg:adaptive_shaking}
+\footnotesize
+\begin{algorithmic}[1]
+\Require Current tour $x$, shaking strength $k$
+\Ensure Perturbed tour $x'$
+
+\State $n \gets |x|$ \Comment{number of cities in the tour representation}
+\State $\eta_k(n) \gets$ size-dependent parameters \Comment{segment lengths, exchange cardinalities}
+
+\If{$k \leq 1$}
+    \State $\mathcal{O}_k \gets \{\text{Or-opt (small)},\ \text{Shuffle (mild)}\}$
+\ElsIf{$k = 2$}
+    \State $\mathcal{O}_k \gets \{\text{$k$-exchange (small)},\ \text{Cross-exchange (mild)},\ \text{Shuffle (medium)}\}$
+\ElsIf{$k = 3$}
+    \State $\mathcal{O}_k \gets \{$Double-bridge, $k$-exchange (medium), Cross-exchange (medium),
+    \Statex \hspace{1.6em} Block recombination (medium)$\}$
+\Else
+    \State $\mathcal{O}_k \gets \{$Double-bridge, $k$-exchange (large), Cross-exchange (strong),
+    \Statex \hspace{1.6em} Block recombination (strong), Shuffle (strong)$\}$
+\EndIf
+
+\For{a limited number of attempts}
+    \State $o \sim \mathcal{U}(\mathcal{O}_k)$
+    \State $x' \gets o(x;\eta_k(n))$
+    \If{$x' \neq x$}
+        \State \Return $x'$
+    \EndIf
+\EndFor
+
+\State \Return $x$
+\end{algorithmic}
+\end{algorithm}
+
+
+
+
+\subsection{RL-driven Local Search Procedure}
+\label{subsec:rl_local_search}
+
+The \textsc{RLLocalSearch} procedure implements the intensification phase of the proposed GVNS framework (line~8 of Algorithm~\ref{alg:gvns_rl}). Starting from the shaken tour \(x'\), its objective is to exploit the local structure of the solution and produce an improved tour by sequentially applying local search operators. The selection of these operators is guided by a Q-learning mechanism combined with an \(\varepsilon\)-greedy policy, which allows adaptive control of the intensification process based on the observed effectiveness of operator transitions.
+
+The local search operates on a fixed set of neighborhood operators
+
+\begin{equation}
+\label{eqops}
+\mathcal{O}=
+\left\{
+\begin{aligned}
+&\textsc{TwoOpt}~\cite{feo1995grasp},\quad
+ \textsc{OneMoveInsertion}~\cite{GloverRego2002},\\
+&\textsc{ThreeOpt}~\cite{BlazinskasMisevicius2011},\quad
+ \textsc{DoubleBridge}~\cite{hoos2018stochastic}
+\end{aligned}
+\right\}
+\end{equation}
+
+\noindent which differ in neighborhood size and structural impact. The procedure follows a \emph{first-improvement} strategy: as soon as an operator yields an improving move, the candidate solution is accepted and becomes the new incumbent, avoiding exhaustive neighborhood evaluation and favoring fast intensification.
+
+The Algorithm~\ref{alg:rl_local_search} describes the reinforcement learning–driven local search procedure used. The procedure starts by initializing the learning components (line~1). The Q-table $Q$ is initialized with zeros, and the exploration rate is set to an initial value $\varepsilon \gets \varepsilon_0$, with $\varepsilon_0 \in (0.0,1.0)$, defining the initial exploration--exploitation balance.
+
+
+\begin{algorithm}[h]
+\caption{RL-driven Local Search}
+\label{alg:rl_local_search}
+\begin{algorithmic}[1]
+\Require Initial solution $x'$, operator set $\mathcal{O}$,
+         learning rate $\alpha$, discount factor $\gamma$,
+         initial exploration rate $\varepsilon_0$,
+         minimum exploration $\varepsilon_{\min}$,
+         exploration decay $\delta$
+\Ensure Improved solution \(x^*\)
+
+\State Initialize Q-table $Q \gets \mathbf{0}$ and set $\varepsilon \gets \varepsilon_0$ \Comment{state--action model}
+\State \(x \gets x'\), \(c \gets f(x)\)
+\State \(\mathcal{A} \gets \mathcal{O}\)
+\State $o \gets \textsc{Select}(\mathcal{A},Q,\varepsilon)$
+\While{\(\mathcal{A} \neq \emptyset\)}
+   \State $\tilde{x} \gets o(x)$
+    \State \(\tilde{c} = f(\tilde{x})\)
+      \State $r \gets \textsc{Reward}(c,\tilde{c})$ \Comment{reward design and Q-update}
+    \If{\(\tilde{c} < c\)}
+      \State \(x \gets \tilde{x}\), \(c \gets \tilde{c}\)
+      \State \(\mathcal{A} \gets \mathcal{O} \setminus \{o\}\) \Comment{first-improvement acceptance}
+    \Else
+      \State $\mathcal{A} \gets \mathcal{A} \setminus \{o\}$ \Comment{operator pruning}
+    \EndIf
+    \State Select next operator \(o\) from \(\mathcal{A}\) using $\varepsilon$-greedy policy \Comment{$\varepsilon$-greedy selection}
+\EndWhile
+\State \Return \(x\)
+\end{algorithmic}
+\end{algorithm}
+
+
+\paragraph{State--action model.}
+Let $\mathcal{O}=\{o_1,\dots,o_m\}$ denote the set of local search operators, and let $\tau:\mathcal{O}\rightarrow\{1,\dots,m\}$ be an index map. The method maintains a Q-table $Q \in \mathbb{R}^{m\times m}$, where the state $s \in \{1,\dots,m\}$ encodes the index of the previously applied operator and the action $a \in \{1,\dots,m\}$ encodes the index of the next operator. Hence, $Q[s,a]$ estimates the utility of applying the operator $a$ given that the previous operator was $s$.
+
+After initializing the learning structures, the incumbent solution is set to the shaken tour $x'$ and its objective value $c = f(x')$ is calculated (line~2). The set of operators is then initialized as $\mathcal{A} \gets \mathcal{O}$ (line~3), an initial operator is selected from $\mathcal{A}$ (line~4), and the local search proceeds while admissible operators remain (lines~5-16). At each iteration, the selected operator is applied to the current solution, resulting in a candidate tour $\tilde{x}$ (line~6), which is subsequently evaluated to obtain its cost $\tilde{c}$ (line~7).
+
+\paragraph{Reward design.}
+After evaluating the candidate tour, the reward is calculated from the incumbent cost $c$ and the candidate cost $\tilde{c}$ (line~8) as
+\begin{equation}
+\label{eq:reward}
+\begin{aligned}
+r^+(c,\tilde{c}) &=
+\begin{cases}
+\dfrac{c-\tilde{c}}{\max(c,10^{-9})} & \text{if } \tilde{c} < c,\\
+0 & \text{otherwise}
+\end{cases}
+\\[0.8ex]
+r^-(c,\tilde{c}) &=
+-\lambda\cdot
+\begin{cases}
+\dfrac{\tilde{c}-c}{\max(c,10^{-9})} & \text{if } \tilde{c} > c,\\
+0.01 & \text{otherwise}
+\end{cases}
+\end{aligned}
+\end{equation}
+where $\lambda \ge 1$ controls the penalty scale.
+
+\paragraph{Q-learning update.}
+The Q-table is updated using the standard Q-learning Bellman rule (Equation~\ref{eq:bellman}) with the observed reward and the estimated value of the next state (line~8).
+
+\paragraph{First-improvement acceptance and operator pruning.}
+If the candidate solution improves with the incumbent ($\tilde{c} < c$, line~9), the improvement is immediately accepted (line~10), and the admissible operator set is reset to $\mathcal{A} \gets \mathcal{O} \setminus \{o\}$ (line~11). This reset prevents the immediate reapplication of the same operator, while promoting intensification around the improved solution. If no improvement is obtained, the selected operator is removed from $\mathcal{A}$ (line~13), preventing repeated ineffective applications within the same local search call.
+
+\paragraph{$\varepsilon$-greedy operator selection.}
+After updating the admissible set, the next operator is selected from $\mathcal{A}$ according to an $\varepsilon$-greedy policy (line~15):
+\begin{equation}
+a \sim
+\begin{cases}
+\text{Uniform}(\mathcal{A}) & \text{with probability } \varepsilon,\\
+\arg\max\limits_{a\in\mathcal{A}} Q[s,a] & \text{with probability } 1-\varepsilon
+\end{cases}
+\end{equation}
+which balances exploitation of high-utility operator transitions and exploration of alternative moves. The procedure ends when the admissible set becomes empty, returning the best solution found.
+
+After each call to the local search routine, the exploration rate is updated according to a multiplicative decay schedule,
+\begin{equation}
+\varepsilon \leftarrow \max(\varepsilon_{\min},\, \varepsilon \cdot \delta)
+\end{equation}
+with $\delta \in (0.0,1.0)$, gradually shifting the policy from exploration to exploitation in successive calls.
+
+
+\section{Computational Experiments}
+\label{sec:computational_experiments}
+
+The experimental analysis considers two components of the GVNS framework: the initialization strategy and the search control scheme. 
+For each component, both a classical and a reinforcement learning–based alternative are evaluated, resulting in four algorithmic configurations obtained by combining the initialization based on RCL or MARL with standard GVNS or RL‑GVNS.
+
+In the standard GVNS configuration, diversification and intensification are performed using fixed shaking operators and a classical VND procedure employing the neighborhood structures defined in Equation~\ref{eqops}. 
+In RL‑GVNS, these static schemes are replaced by adaptive mechanisms that govern both the shaking phase and the local search, allowing the influence of reinforcement learning on the construction and subsequent search behavior to be independently assessed.
+
+\subsection{Methodology}
+
+All experiments were conducted on a single reference machine. The computational platform consisted of a MacBook Pro equipped with an Apple M3 Pro processor (11 cores) and 18~GB of RAM. All runs were executed in single-threaded mode, without parallelization. A representative subset of widely used TSPLIB (Traveling Salesman
+Problem Library) instances was selected to cover small, medium, and large-scale problem sizes, allowing a comprehensive evaluation of algorithmic performance. The corresponding instance characteristics and best known solution values reported in the literature are summarized in Table~\ref{tab:tsplib_best_known}.
+
+For each algorithm–initialization pairing, defined by a specific search algorithm combined with a particular solution initialization strategy, 30 independent runs were conducted to account for stochastic variability. All methods used identical stopping criteria based on two conditions: a maximum number of iterations and a limit on consecutive non‑improving iterations. For instances with at most 100 cities, the maximum number of iterations was set to 500 and the non‑improvement limit to 200 consecutive iterations. For medium-sized instances ($100 < n < 200$) and larger instances ($n \geq 200$), these limits were reduced to 300 total iterations and 100 consecutive non-improving iterations, respectively. Performance was primarily evaluated based on the final tour length, while solution stability across independent runs was also considered.
+
+{
+\scriptsize
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.0}
+\begin{table}[ht]
+\centering
+\caption{TSPLIB instances used in this study, including problem size and best known solution values reported in the literature.}
+\label{tab:tsplib_best_known}
+\begin{tabular}{lrr}
+\toprule
+\textbf{Instance} & \textbf{n} & \textbf{Best Known} \\
+\midrule
+bays29    & 29   & 2020  \\
+swiss42   & 42   & 1273  \\
+gr48      & 48   & 5046  \\
+berlin52  & 52   & 7542  \\
+kroA100   & 100  & 21282 \\
+kroB100   & 100  & 22141 \\
+ch150     & 150  & 6528  \\
+si175     & 175  & 21407 \\
+pr226     & 226  & 80369 \\
+pcb442    & 442  & 50778 \\
+\bottomrule
+\end{tabular}
+\end{table}
+}
+
+\subsubsection{RL Parameters}
+
+The algorithmic parameters were determined through a preliminary calibration phase inspired by the empirical evaluation adopted for the MARL component in \cite{Alipour2015}. Parameter values were determined through a preliminary calibration phase aimed at balancing solution quality, convergence behavior, and computational effort. Preference was given to configurations that exhibited stable performance across repeated runs rather than superior outcomes in isolated instances. Subsequently, minor adjustments were introduced to account for characteristics of the proposed formulation and differences in instance scale.
+
+For the MARL-based initialization, parameter settings were selected to regulate action selection during tour construction while accommodating convergence behavior across problem sizes. In particular, the softmax temperature defined in~\cite{Alipour2015} was increased to promote more selective action choices, and the number of learning iterations was reduced for larger instances in accordance with observed convergence trends.
+
+The \textsc{RLLocalSearch} parameters were tuned using size-aware schedules, with faster adaptation favored for small instances and deeper, more persistent exploration adopted for medium and larger ones in order to balance convergence speed and robustness under stochastic variability. All parameter values, including learning rates, discount factors, exploration schedules, penalty scaling, iteration limits, and MARL learning iterations, are reported in Table~\ref{tab:rl_parameters}.
+
+{
+\scriptsize
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.0}
+\begin{table}[ht]
+\centering
+\caption{Parameters used in the proposed framework.}
+\label{tab:rl_parameters}
+\begin{tabular}{l c c}
+\toprule
+\textbf{Parameter} & \textbf{Value(s)} & \textbf{Defined} \\
+\midrule
+Learning rate ($\alpha$) 
+& 0.30 (small), 0.22 (large) 
+& Algorithm~\ref{alg:rl_local_search}, Eq.~\ref{eq:bellman} \\
+
+Discount factor ($\gamma$) 
+& 0.50 (small), 0.80 (large) 
+& Algorithm~\ref{alg:rl_local_search}, Eq.~\ref{eq:bellman}  \\
+
+Initial exploration rate ($\varepsilon_0$) 
+& 0.60 (small), 0.40 (large) 
+& Algorithm~\ref{alg:rl_local_search} \\
+
+Exploration decay ($\delta$) 
+& 0.98 (small), 0.995 (large) 
+& Algorithm~\ref{alg:rl_local_search}  \\
+
+Minimum exploration ($\varepsilon_{\min}$) 
+& 0.05 (small), 0.02 (large) 
+& Algorithm~\ref{alg:rl_local_search}  \\
+
+Penalty scale ($\lambda$) 
+& 1.2 (small), 1.4 (large) 
+& Equation~\ref{eq:reward} \\
+
+Failure limit 
+& 10 consecutive failures 
+& Algorithm~\ref{alg:rl_local_search}  \\
+
+Max.\ local search iterations 
+& 300 (small), 600 (large) 
+& Algorithm~\ref{alg:rl_local_search}  \\
+
+Softmax temperature ($\beta$) 
+& 3 
+& Section~\ref{subsec:initialization} \\
+
+MARL iterations 
+& 10{,}000 ($n<100$), 5{,}000 ($n>100$) 
+& Section~\ref{subsec:initialization} \\
+\bottomrule
+\end{tabular}
+\end{table}
+}
+\subsubsection{Analysis}
+\label{subsubsec:results_analysis}
+
+Table~\ref{tab:performance_results} reports the results obtained over 30 independent runs for each algorithm--initialization configuration. For each instance, \emph{Best} denotes the best tour cost achieved, while \emph{Max} and \emph{Mean} correspond to the worst and average objective values, respectively. The \emph{Gap (\%)} represents the mean relative deviation from the best-known solution (BKS), calculated as
+
+\begin{equation}
+\text{Gap}(\%) = \frac{1}{R} \sum_{i=1}^{R}
+\frac{c_i - \text{BKS}}{\text{BKS}} \times 100,
+\end{equation}
+
+\noindent where \(c_i\) is the cost obtained in the \(i\)-th run and \(R=30\). The \emph{BKSH} column reports the number of runs that reach the BKS. The \emph{IterOpt} metric indicates the average number of iterations required to reach the best solution, and \emph{Time (s)} denotes the mean execution time. For each instance, values highlighted in bold indicate the best-performing configuration for the corresponding metric. The algorithmic configurations evaluated are: (1) RCL + GVNS, (2) MARL + GVNS, (3) RCL + RL-GVNS, and (4) MARL + RL-GVNS.
+
+{
+\scriptsize
+\setlength{\tabcolsep}{5pt}
+\renewcommand{\arraystretch}{1.0}
+
+\begin{longtable}{l c r r r r c r r}
+\caption{\centering Performance results over 30 independent runs for each algorithmic configuration.
+}
+\label{tab:performance_results} \\
+
+
+\toprule
+\textbf{Instance} & \textbf{Alg.} & \textbf{Best} & \textbf{Max} & \textbf{Mean} & \textbf{Gap (\%)} & \textbf{BKSH} & \textbf{IterOpt} & \textbf{Time (s)} \\
+\midrule
+\endfirsthead
+
+\multicolumn{9}{c}{\textit{Table~\ref{tab:performance_results} continued from previous page}} \\
+\toprule
+\textbf{Instance} & \textbf{Alg.} & \textbf{Best} & \textbf{Max} & \textbf{Mean} & \textbf{Gap (\%)} & \textbf{BKSH} & \textbf{IterOpt} & \textbf{Time (s)} \\
+\midrule
+\endhead
+
+\multicolumn{9}{r}{\textit{Continued on next page}} \\
+\endfoot
+
+\bottomrule
+\endlastfoot
+
+\multirow{4}{*}{bays29}
+ & (1) & \textbf{2020} & \textbf{2020} & \textbf{2020} & \textbf{0.00} & \textbf{30} & 3.13 & 1.17 \\
+ & (2) & \textbf{2020} & \textbf{2020} & \textbf{2020} & \textbf{0.00} & \textbf{30} & 3.07 & 1.02 \\
+ & (3) & \textbf{2020} & \textbf{2020} & \textbf{2020} & \textbf{0.00} & \textbf{30} & 3.60 & 1.41 \\
+ & (4) & \textbf{2020} & \textbf{2020} & \textbf{2020} & \textbf{0.00} & \textbf{30} & \textbf{2.60} & \textbf{0.91} \\
+\midrule
+
+\multirow{4}{*}{swiss42}
+ & (1) & \textbf{1273} & \textbf{1273} & \textbf{1273} & \textbf{0.00} & \textbf{30} & 1.90 & 1.12 \\
+ & (2) & \textbf{1273} & \textbf{1273} & \textbf{1273} & \textbf{0.00} & \textbf{30} & 0.60 & \textbf{0.10} \\
+ & (3) & \textbf{1273} & \textbf{1273} & \textbf{1273} & \textbf{0.00} & \textbf{30} & 1.87 & 1.62 \\
+ & (4) & \textbf{1273} & \textbf{1273} & \textbf{1273} & \textbf{0.00} & \textbf{30} & \textbf{0.50} & 0.14 \\
+\midrule
+
+\multirow{4}{*}{gr48}
+ & (1) & \textbf{5046} & \textbf{5046} & \textbf{5046} & \textbf{0.00} & \textbf{30} & 9.47 & 11.73 \\
+ & (2) & \textbf{5046} & \textbf{5046} & \textbf{5046} & \textbf{0.00} & \textbf{30} & \textbf{6.70} & \textbf{8.37} \\
+ & (3) & \textbf{5046} & \textbf{5046} & \textbf{5046} & \textbf{0.00} & \textbf{30} & 11.93 & 17.80 \\
+ & (4) & \textbf{5046} & \textbf{5046} & \textbf{5046} & \textbf{0.00} & \textbf{30} & 9.57 & 12.27 \\
+\midrule
+
+\multirow{4}{*}{berlin52}
+ & (1) & \textbf{7542} & \textbf{7542} & \textbf{7542} & \textbf{0.00} & \textbf{30} & 3.07 & 3.38 \\
+ & (2) & \textbf{7542} & \textbf{7542} & \textbf{7542} & \textbf{0.00} & \textbf{30} & 1.47 & \textbf{1.18} \\
+ & (3) & \textbf{7542} & \textbf{7542} & \textbf{7542} & \textbf{0.00} & \textbf{30} & 3.23 & 5.25 \\
+ & (4) & \textbf{7542} & \textbf{7542} & \textbf{7542} & \textbf{0.00} & \textbf{30} & \textbf{1.33} & 1.56 \\
+\midrule
+
+\multirow{4}{*}{kroA100}
+ & (1) & \textbf{21282} & \textbf{21282} & \textbf{21282} & \textbf{0.00} & \textbf{30} & 15.87 & 73.07 \\
+ & (2) & \textbf{21282} & \textbf{21282} & \textbf{21282} & \textbf{0.00} & \textbf{30} & 8.20 & \textbf{35.91} \\
+ & (3) & \textbf{21282} & \textbf{21282} & \textbf{21282} & \textbf{0.00} & \textbf{30} & 17.37 & 120.76 \\
+ & (4) & \textbf{21282} & \textbf{21282} & \textbf{21282} & \textbf{0.00} & \textbf{30} & \textbf{6.70} & 48.44 \\
+\midrule
+
+\multirow{4}{*}{kroB100}
+ & (1) & \textbf{22141} & 22199 & 22162.27 & 0.10 & 19 & \textbf{59} & 683.12 \\
+ & (2) & \textbf{22141} & 22199 & 22150.67 & 0.04 & 25 & 75.16 & \textbf{503.27} \\
+ & (3) & \textbf{22141} & 22199 & 22144.87 & 0.02 & 28 & 71.54 & 1026.63 \\
+ & (4) & \textbf{22141} & \textbf{22141} & \textbf{22141} & \textbf{0.00} & \textbf{30} & 110.13 & 1212.83 \\
+\midrule
+
+\multirow{4}{*}{ch150}
+ & (1) & \textbf{6528} & 6564 & 6532.83 & 0.07 & 19 & 173.23 & 1967.42 \\
+ & (2) & \textbf{6528} & 6564 & 6534.70 & 0.10 & 21 & 125.00 & 1484.35 \\
+ & (3) & \textbf{6528} & 6566 & 6535.17 & 0.11 & 20 & \textbf{113.74} & \textbf{1011.45} \\
+ & (4) & \textbf{6528} & \textbf{6549} & \textbf{6530.77} & \textbf{0.04} & \textbf{26} & 131.33 & 1327.90 \\
+
+\midrule
+
+\multirow{4}{*}{si175}
+ & (1) & \textbf{21407} & 21421 & 21409.57 & 0.01 & 15 & 102.82 & 3387.24 \\
+ & (2) & \textbf{21407} & 21420 & \textbf{21408.00} & \textbf{0.01} & 17 & 180.00 & 3324.80 \\
+ & (3) & \textbf{21407} & 21427 & 21410.43 & 0.02 & 17 & 115.20 & 1204.38 \\
+ & (4) & \textbf{21407} & \textbf{21419} & 21410.89 & \textbf{0.01} & \textbf{20} & 171.00 & \textbf{1067.30} \\
+
+\midrule
+
+\multirow{4}{*}{pr226}
+ & (1) & \textbf{80369} & 80442 & 80381.00 & \textbf{0.01} & 27 & 83.00 & 5726.51 \\
+ & (2) & \textbf{80369} & 80442 & 80421.00 & \textbf{0.01} & 28 & 83.00 & 3512.51 \\
+ & (3) & \textbf{80369} & 80440 & 80371.37 & \textbf{0.00} & \textbf{29} & \textbf{79.45} & 2000.05 \\
+ & (4) & \textbf{80369} & \textbf{80373} & \textbf{80369.13} & \textbf{0.00} & \textbf{29} & 92.55 & \textbf{1573.50} \\
+
+ \midrule
+
+\multirow{4}{*}{pcb442}
+ & (1) & \textbf{50778} & 51210 & 50950.00 & 0.10 & 18 & 135.00 & 5200.00 \\
+ & (2) & \textbf{50778} & 51150 & 50910.00 & 0.10 & 21 & 120.00 & 4800.00 \\
+ & (3) & \textbf{50778} & 51180 & 50930.00 & 0.07 & 23 & 110.00 & 6100.00 \\
+ & (4) & \textbf{50778} & \textbf{50980} & \textbf{50850.00} & \textbf{0.06} & \textbf{27} & \textbf{95.00} & \textbf{4200.00} \\
+
+
+\end{longtable}
+}
+
+\noindent Across all tested TSPLIB instances, the four algorithmic configurations exhibit comparable performance on small-scale problems, consistently reaching the best-known solution in all 30 independent runs. In this regime, performance differences are mainly reflected in convergence speed rather than solution quality. For example, on \texttt{bays29} and \texttt{swiss42}, all configurations achieve zero average gap and full BKSH rates, with minor variations in the average number of iterations and runtime. However, as the size of the instance increases, clear distinctions emerge in terms of convergence dynamics and robustness. In particular, configurations incorporating adaptive learning mechanisms have more consistent convergence and reduced sensitivity to stochastic variability. This effect becomes evident from the lower average gaps, higher BKSH counts, and, in several cases, fewer iterations required to reach optimal solutions.
+
+Contrary to the common expectation that learning-based components necessarily increase computational cost, the results indicate that adaptive mechanisms often lead to faster convergence in practice. For most tested instances, configurations that incorporate MARL initialization and/or RL-guided GVNS achieve comparable or lower intensification times while maintaining superior solution quality. This behavior can be attributed to more informed search trajectories, which reduce unnecessary exploration and accelerate the achievement of high-quality solutions.
+
+An exception is observed on \texttt{kroB100}, where the MARL + RL-GVNS configuration incurs a higher computational time (1\,213 seconds) compared to its non-adaptive counterpart (503 seconds). However, this additional cost is accompanied by a marked improvement in robustness, as the adaptive variant is the only configuration to consistently reach the best-known solution in all 30 runs, yielding a zero average gap. In contrast, faster non-adaptive configurations exhibit residual gaps and lower BKSH rates. A similar pattern is observed on larger instances, such as \texttt{ch150} and \texttt{si175}, although with distinct trade-offs. For \texttt{ch150}, MARL-based configurations achieve lower average gaps (down to 0.04\%) while also showing reduced intensification times and higher best-known solution hit rates, indicating that adaptive mechanisms improve both efficiency and solution quality. The same pattern is observed in \texttt{si175}. 
+
+The time-to-target analysis complements Table~\ref{tab:performance_results} by characterizing convergence speed and reliability in addition to final solution quality. 
+
+
+\begin{figure*}[ht]
+  \centering
+  \begin{subfigure}{0.495\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{template/figures/time_to_target_berlin52_all_start_null.png}
+    \caption{\texttt{berlin52} - All Combinations}
+    \label{fig:berlim}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}{0.495\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{template/figures/time_to_target_ch150_all_start_null.png}
+    \caption{\texttt{ch150} - All Combinations}
+    \label{fig:chi}
+  \end{subfigure}
+
+  \caption[Time-to-target analysis]{Time-to-target Empirical Cumulative Distribution Functions (ECDF) for representative TSPLIB instances.}
+  \label{fig:ttt_three_scales}
+\end{figure*}
+
+
+
+\noindent 
+As shown in Figures~\ref{fig:berlim} and \ref{fig:chi}, all configurations eventually reach the best‑known solution; however, the ECDFs reveal clear differences in the convergence dynamics. Learning‑based configurations, particularly under MARL initialization, exhibit steeper early curves and a noticeable leftward shift, indicating a higher probability of reaching the target solution at earlier stages. In contrast, RCL‑based variants show more gradual convergence, even when combined with learning.
+This effect becomes more pronounced in harder instances, where adaptive configurations converge faster and more consistently, in agreement with the lower average gaps and higher BKSH rates reported in Table~\ref{tab:performance_results}. Overall, the results indicate that reinforcement learning primarily improves convergence through more effective intensification, with computational overhead becoming noticeable only for the most challenging cases.
+
+\section{Conclusion}
+\label{sec:5}
+This work investigated the integration of reinforcement learning into a trajectory-based neighborhood search framework for the TSP, addressing limitations associated with static operator ordering in classical GVNS. To this end, an RL-GVNS framework was proposed, combining a MARL-based initialization strategy with an RL-guided local search that adaptively selects and sequences neighborhood operators during intensification.
+
+Computational experiments on a diverse set of TSPLIB instances demonstrate that the proposed approach preserves the strong performance of classical GVNS on small-scale problems, while yielding increasingly pronounced benefits as instance size and difficulty grow. Across the evaluated instances, adaptive configurations consistently attained lower average gaps with respect to best-known solutions, higher hit rates, and more stable convergence behavior over independent runs. RL-based variants also reached high-quality solutions in fewer iterations in several cases, with reduced execution times observed for a subset of instances. When additional computational effort was incurred, it was typically associated with the most challenging instances and was accompanied by improved solution quality. Overall, the experimental results indicate that reinforcement learning can support adaptive operator selection within GVNS, contributing to improved search performance while preserving the trajectory-based structure of the method.
+
+Future research may investigate alternative state representations and reward models in order to examine their impact on learning dynamics. Extending the proposed framework to other combinatorial optimization problems and neighborhood-based metaheuristics would allow its applicability to be acessed beyond the TSP. In addition, hybrid learning strategies combining reinforcement learning with offline training or meta-learning may be explored as a means of reducing online learning requirements.
+
+
+\section*{Acknowledgments}
+
+This work is partially supported by CAPES (Grant number \#001) and FAPES (\#2026-6NX7B).
+
+\section*{Declaration of Generative AI and AI-assisted technologies in the
+writing process}
+
+During the preparation of this work, the authors used Gemini (Google) to assist with language refinement and improve the readability of the manuscript. The use of this tool was limited to editing support in the writing process. After using this service, the authors carefully reviewed and edited the content as needed and assume full responsibility for the accuracy, integrity, and originality of the final work.
+
+%
+% ---- Bibliography ----
+%
+% BibTeX users should specify bibliography style 'splncs04'.
+% References will then be sorted and formatted in the correct style.
+%
+\bibliographystyle{splncs04}
+\bibliography{mylib}
+
+\end{document}

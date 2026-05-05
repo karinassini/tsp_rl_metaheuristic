@@ -1,0 +1,240 @@
+Dear Karina Assini Andreatta,
+
+Thank you for your submission to The 2026 International Conference on Computational Science and Its Applications.
+
+We are pleased to inform you that your paper, titled
+
+"A Reinforcement Learningâ€“Guided General Variable Neighborhood Search for the Traveling Salesman Problem"
+
+
+has  been accepted as LNCS PAPER with some modifications (see reviews) for presentation at ICCSA 2026 
+and publication on the Springer LNCS  ICCSA 2026 Proceedings (published by Springer).
+
+However, the acceptance and inclusion of your paper in the proceedings is conditional on ALL the 
+following requirements (please, read carefully):
+
+1) REVISION. Your paper must be revised following all the reviewers' comments (if present).
+   Take reviewers' comments into very careful consideration in making your final 
+   revisions.
+
+2) CAMERA-READY PREPARATION. You must prepare the camera-ready version of your paper according to 
+   the detailed instructions for authors that can be found at:
+
+     http://www.springer.com/computer/lncs?SGWID=0-164-6-793341-0
+
+3) PAGE COUNT. The camera ready version of your paper (in PDF format!) must be no shorted than 12 pages 
+   and no longer than 18 pages including appendixes and figures, and the pages of your paper must be 
+   not numbered.  If it is longer/shorter than the allowed limit,  we will not be able to include it in the proceedings.
+
+4) SUBMISSION OF THE SOURCE FILES RELATED TO YOUR PAPER(S) (deadline: May 8, 2026)
+   Camera ready version of your paper in PDF format AND ALL SOURCE files must be submitted, by May 8, 2026 
+   (hard deadline), through the electronic submission page:
+
+     https://ess.iccsa.org/
+
+   You should connect to your personal page.  For all accepted papers you will find the button 
+   "Upload Camera Ready and Source files".  Click on the button and the submission page will open.
+
+5) SUBMISSION OF SIGNED COPYRIGHT TRANSFER FORM: In addition to the electronic version of the source files, the 
+publisher needs a signed hard copy of the Copyright Transfer Form.  Download it from:
+     https://iccsa.org/copyright-form
+
+   Please complete, sign and upload it on your personal page available in the electronic submission system at your 
+earlier convenience (clicking on the "Upload Copyright Transfer Form" button).
+
+   Your copyright form must be received NO LATER THAN May 8, 2026.
+
+   Details for filling the Copyright Transfer Form will be available at the Conference web site: 
+     https://iccsa.org/proceedings
+
+6) CONFERENCE REGISTRATION (deadline: 2026-05-08): On your personal page available in the electronic 
+   submission system you will find the button to register for attending the conference and for 
+   paying the Registration Fee. 
+   Each paper/poster included in the Proceedings has to be associated to a registrant. 
+   The allowed payments methods are: wire transfer (it requires time, so proceed as soon as possible) or 
+   credit card. 
+   For details related to the procedure and costs please visit https://iccsa.org/registration-info.
+
+Please, be sure to follow ALL the instructions above very carefully in order to have your paper included 
+in the proceedings. When the conference program will be finalized, it will be published on the Conference 
+site, where you'll be able to find instructions  about the presentation of your paper.
+
+Please, acknowledge receipt of this notification ASAP to the e-mail lncs@iccsa.org.
+
+
+
+Congratulations on having your paper accepted. 
+We look forward to seeing you in Braga, Portugal,
+
+  Best Regards,
+
+ Ana Rocha, David Taniar, Osvaldo Gervasi					      Beniamino Murgante, Chiara Garau
+ General Chairs of ICCSA 2026 		           		              Program Chairs of ICCSA 2026
+
+
+      
+====================================================================
+		                REFEREE MESSAGES:
+====================================================================
+
+*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=
+
+1st reviewer's review:
+
+	          >>> Readability <<<
+Acceptable
+	          >>> Originality <<<
+Barely Acceptable
+	          >>> Significance <<<
+Acceptable
+	          >>> Relevance <<<
+Very Good
+	          >>> Rating <<<
+Acceptable
+
+	          >>> Comments for the authors <<<
+
+ Comments 
+
+- This paper lies within the field of combinatorial optimization and metaheuristics,
+ more specifically at the intersection of Variable Neighborhood Search (VNS/GVNS) and reinforcement learning (RL) 
+ for adaptive operator selection. 
+
+- This work proposes an RL-enhanced GVNS framework TSP integrating Q-learning both in initialization and local search phase.
+ It addresses the limitation of fixed operator ordering in classical GVNS by introducing adaptive mechanisms: 
+ RL-driven VNS using Q-learning + MARL-based initialization + adaptive shaking strategy
+
+- The paper is in line with recent trends in ML for metaheuristics. The methodology is clear. The paper is  well structured. 
+
+- The decomposition into initialization, shaking, and local search phases is standard. 
+
+- The operator-to-operator transitions is simple but computationally efficient. 
+
+What i need to do: 
+
+- However, it is defined only as the previously applied operator which is a very limited representation of the search context. 
+  This choice should be justified or faced as limitation. 
+  
+- The integration of MARL and RL-GVNS is presented, but the interaction between these components is not described in detail.
+
+- What is the rationale for reward function? And the asymmetry between positive and negative rewards and the fixed penalty term?
+
+- Q-table is reinitialized for each local search call which limits long-term learning and contradicts the idea of accumulating knowledge across the search.
+Limitation?
+
+- The instances are mostly small to medium scale; only one large instance (pcb442) is included. 
+
+- The improvements are relatively small in several cases. Limitation?
+
+- The parameter tuning process is described informally. systematic calibration is needed. 
+
+- Minor: Some sentences are repetitive, particularly in the introduction. 
+
+- Some references are incomplete (authors missing!). 
+
+- Old references, recent works on RL for combinatorial optimization and neural heuristics are missing
+
+
+	          >>> Points in favour or against <<<
+(+) Clear and well-structured
+convergence behavior for small instances
+Relevant topic aligned with current trends in ML-MH
+(-) The contribution is incremental. 
+learning design is simple. choices are not sufficiently justified.
+The experimental study is limited
+
+ =*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=
+
+2nd reviewer's review:
+
+	          >>> Readability <<<
+Very Good
+	          >>> Originality <<<
+Barely Acceptable
+	          >>> Significance <<<
+Acceptable
+	          >>> Relevance <<<
+Acceptable
+	          >>> Rating <<<
+Very Good
+
+	          >>> Comments for the authors <<<
+
+Comments 
+
+What i need to do: 
+
+- This paper proposes a reinforcement learningâ€“guided extension (RL-GVNS)  
+for the Traveling Salesman Problem. 
+
+- The main contribution lies in replacing the fixed ordering of local search operators
+ in Variable Neighborhood Descent (VND) with a Q-learningâ€“based adaptive operator and
+  a MARL-based initialization. 
+ 
+- Several experimental results are performed to test the new approach.
+ TSPLIB instances were selected to compare four configurations based on the results for
+  30 independent runs,. 
+  
+- The results are sound and the comparison adequate. 
+
+- The results indicate that, for the large instances considered, 
+learning-based variantsâ€”especially the combined MARL + RL-GVNS seems  to be promising. 
+ The paper is well written and the algorithms are described with an adequate level of detail.
+
+What i need to do: 
+
+However, no statistical test is performed to compare the performance. 
+The use of statistical tests would improve the analysis indicating if the differences
+ observed are statistical significant.
+
+
+	          >>> Points in favour or against <<<
+(+) well written paper with sufficient details
+(+) adequate identification of related works (state of the art)
+(-) no statistical analysis is performed
+(-) number of instances very limited
+
+ =*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=
+
+3rd reviewer's review:
+
+	          >>> Readability <<<
+Very Good
+	          >>> Originality <<<
+Very Good
+	          >>> Significance <<<
+Very Good
+	          >>> Relevance <<<
+Very Good
+	          >>> Rating <<<
+Very Good
+
+	          >>> Comments for the authors <<<
+
+Comments 
+
+- The article in review â€œA Reinforcement Learningâ€“Guided General Variable Neighborhood Search 
+for the Traveling Salesman Problemâ€ is an interesting and well written paper. 
+
+- Authors propose a reinforcement learningâ€“guided General Variable Neighborhood Search framework 
+for the TSP, that integrates adaptivity at multiple stages of the search. 
+Computational experiments show improved robustness, convergence behavior, and solution quality. 
+
+What i need to do: 
+
+The proposed framework combines several components,
+ but it is unclear which component contributes most to the observed improvements.
+ The paper would benefit from that insight. Provided some minor issues are solved,
+I am happy to recommend this paper to be published in LNCS.
+Additionally, authors should provide careful proof reading to eliminate possible typos or errors and to make sure the LNCS layout is respected.
+
+Minor issues:
+Page 2: guaranties should read guarantees
+Page 17-18: References are not in LNCS style
+
+
+	          >>> Points in favour or against <<<
+(+) Computational experiments show improved robustness, convergence behavior, and solution quality.
+(-) It is unclear which component contributes most to the observed improvements.
+
+ =*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=--=*=
