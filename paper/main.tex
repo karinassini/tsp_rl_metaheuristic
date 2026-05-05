@@ -75,7 +75,7 @@
 %\titlerunning{Abbreviated paper title}
 % If the paper title is too long for the running head, you can set
 % an abbreviated paper title here
-%
+%..
 \author{Karina Assini Andreatta\inst{1}\orcidID{0009-0001-7805-2594} \and
 Maria Claudia Silva Boeres\inst{1}\orcidID{0000-0001-9801-2410} \and
 Renato Elias Nunes de Moraes\inst{1}\orcidID{0000-0001-5538-0504}}
@@ -104,7 +104,7 @@ Although all evaluated configurations, combining classical or MARL-based initial
 %
 \section{Introduction}
 
-The Traveling Salesman Problem (TSP) is a classical benchmark in combinatorial optimization. Given the pairwise travel costs between cities, the goal is to find a minimum-cost Hamiltonian tour. Although simply defined, TSP is NP-hard, limiting the applicability of exact methods to medium- and large-scale instances \cite{W2324108981}.
+The Traveling Salesman Problem (TSP) is a classical benchmark in combinatorial optimization. Given the pairwise travel costs between cities, the goal is to find a minimum-cost Hamiltonian tour. Although simply defined, TSP is NP-hard, limiting the applicability of exact methods to medium- and large-scale instances \cite{lawler1985tsp}.
 The TSP exemplifies a broader class of complex combinatorial optimization problems in which the search space is discrete and characterized by a large number of local optima. As the size of the problem increases, exact methods tend to become computationally expensive and, in some cases, impractical. This limitation motivates the use of metaheuristic approaches, which yield high-quality solutions at practical computational time \cite{osman1996meta}. 
 
 Among these, Variable Neighborhood Search (VNS), proposed in \cite{mladenovic1997vns}, leverages this trade-off by relying on a systematic exploration of multiple neighborhood structures. The underlying principle of VNS is that a solution that is locally optimal with respect to one neighborhood structure may cease to be optimal when evaluated under a different neighborhood. To exploit this property, the method alternates between diversification and intensification by changing the neighborhood during the search process. Diversification is performed through a shaking phase, which applies controlled perturbations to move the search away from the current solution, while intensification is achieved by applying local search procedures within a selected neighborhood to refine the solution and reach a local optimum \cite{KARIMIMAMAGHAN2022393}.
@@ -392,10 +392,10 @@ The local search operates on a fixed set of neighborhood operators
 \mathcal{O}=
 \left\{
 \begin{aligned}
-&\textsc{TwoOpt}~\cite{feo1995grasp},\quad
- \textsc{OneMoveInsertion}~\cite{GloverRego2002},\\
-&\textsc{ThreeOpt}~\cite{BlazinskasMisevicius2011},\quad
- \textsc{DoubleBridge}~\cite{hoos2018stochastic}
+&\text{\textsc{TwoOpt}~\cite{feo1995grasp}},\quad
+ \text{\textsc{OneMoveInsertion}~\cite{GloverRego2002}},\\
+&\text{\textsc{ThreeOpt}~\cite{BlazinskasMisevicius2011}},\quad
+ \text{\textsc{DoubleBridge}~\cite{hoos2018stochastic}}
 \end{aligned}
 \right\}
 \end{equation}
@@ -722,14 +722,14 @@ The time-to-target analysis complements Table~\ref{tab:performance_results} by c
   \centering
   \begin{subfigure}{0.495\textwidth}
     \centering
-    \includegraphics[width=\linewidth]{template/figures/time_to_target_berlin52_all_start_null.png}
+    \includegraphics[width=\linewidth]{figures/time_to_target_berlin52_all_start_null.png}
     \caption{\texttt{berlin52} - All Combinations}
     \label{fig:berlim}
   \end{subfigure}
   \hfill
   \begin{subfigure}{0.495\textwidth}
     \centering
-    \includegraphics[width=\linewidth]{template/figures/time_to_target_ch150_all_start_null.png}
+    \includegraphics[width=\linewidth]{figures/time_to_target_ch150_all_start_null.png}
     \caption{\texttt{ch150} - All Combinations}
     \label{fig:chi}
   \end{subfigure}

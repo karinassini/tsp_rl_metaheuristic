@@ -1,0 +1,178 @@
+\begin{thebibliography}{10}
+\providecommand{\url}[1]{\texttt{#1}}
+\providecommand{\urlprefix}{URL }
+\providecommand{\doi}[1]{https://doi.org/#1}
+
+\bibitem{Alipour2015}
+Alipour, M.M., Razavi, S.N.: A new multiagent reinforcement learning algorithm
+  to solve the symmetric traveling salesman problem. Multiagent and Grid
+  Systems  \textbf{11}(2),  107--119 (2015)
+
+\bibitem{Alipour2018}
+Alipour, M.M., Razavi, S.N., Feizi~Derakhshi, M.R., Balafar, M.A.: A hybrid
+  algorithm using a genetic algorithm and multiagent reinforcement learning
+  heuristic to solve the traveling salesman problem. Neural Computing and
+  Applications  \textbf{30}(9),  2935--2951 (Nov 2018)
+
+\bibitem{Babin2007}
+Babin, G., Deneault, S., Laporte, G.: Improvements to the or-opt heuristic for
+  the symmetric travelling salesman problem. Journal of the Operational
+  Research Society  \textbf{58}(3),  402--407 (2007)
+
+\bibitem{Basu2008}
+Basu, S., Ghosh, D.: A review of the tabu search literature on traveling
+  salesman problems. IIMA Working Paper WP2008-10-01, Indian Institute of
+  Management Ahmedabad, Research and Publication Department (2008)
+
+\bibitem{bentley1992fast}
+Bentley, J.L.: Fast algorithms for geometric traveling salesman problems. ORSA
+  Journal on Computing  \textbf{4}(4),  387--411 (1992)
+
+\bibitem{BlazinskasMisevicius2011}
+Blazinskas, A., Misevicius, A.: Combining 2-opt, 3-opt and 4-opt with
+  k-swap-kick perturbations for the traveling salesman problem. In: Proceedings
+  of the 17th International Conference on Information and Software Technologies
+  (IT~2011). pp.~1--6. Kaunas, Lithuania (2011)
+
+\bibitem{DASILVA2010203}
+{da Silva}, R.F., Urrutia, S.: A general vns heuristic for the traveling
+  salesman problem with time windows. Discrete Optimization  \textbf{7}(4),
+  203--211 (2010)
+
+\bibitem{feo1995grasp}
+Feo, T.A., Resende, M.G.C.: Greedy randomized adaptive search procedures.
+  Journal of Global Optimization  \textbf{6}(2),  109--133 (1995)
+
+\bibitem{fialho2010analyzing}
+Fialho, A., Da~Costa, L., Schoenauer, M., Sebag, M.: Analyzing bandit-based
+  adaptive operator selection mechanisms. Annals of Mathematics and Artificial
+  Intelligence  \textbf{60}(1),  25--64 (2010)
+
+\bibitem{GloverRego2002}
+Glover, F., Rego, C.: Local search and metaheuristics for the traveling
+  salesman problem. In: Gutin, G., Punnen, A. (eds.) The Traveling Salesman
+  Problem and Its Variations, pp. 309--368. Kluwer Academic Publishers, Boston
+  (2002)
+
+\bibitem{hansen2008vns}
+Hansen, P., Mladenović, N., Moreno~Pérez, J.A.: Variable neighbourhood
+  search: methods and applications. 4OR  \textbf{6}(4),  319--360 (2008)
+
+\bibitem{HANSEN2017423}
+Hansen, P., Mladenović, N., Todosijević, R., Hanafi, S.: Variable
+  neighborhood search: basics and variants. EURO Journal on Computational
+  Optimization  \textbf{5}(3),  423--454 (2017)
+
+\bibitem{hoos2018stochastic}
+Hoos, H.H., St{\"u}tzle, T.: Stochastic local search. In: Handbook of
+  approximation algorithms and metaheuristics, pp. 297--307. Chapman and
+  Hall/CRC (2018)
+
+\bibitem{HORE201883}
+Hore, S., Chatterjee, A., Dewanji, A.: Improving variable neighborhood search
+  to solve the traveling salesman problem. Applied Soft Computing  \textbf{68},
+   83--91 (2018)
+
+\bibitem{JEONG2025113930}
+Jeong, H.Y., Song, B.D.: Meta-learning-based adaptive operator selection for
+  traveling salesman problem. Applied Soft Computing  \textbf{185},  113930
+  (2025)
+
+\bibitem{KARAKOSTAS2020106913}
+Karakostas, P., Panoskaltsis, N., Mantalaris, A., Georgiadis, M.C.:
+  Optimization of car t-cell therapies supply chains. Computers \& Chemical
+  Engineering  \textbf{139},  106913 (2020)
+
+\bibitem{KARAKOSTAS2022108746}
+Karakostas, P., Sifaleras, A.: A double-adaptive general variable neighborhood
+  search algorithm for the solution of the traveling salesman problem. Applied
+  Soft Computing  \textbf{121},  108746 (2022)
+
+\bibitem{KARAKOSTAS2019263}
+Karakostas, P., Sifaleras, A., Georgiadis, M.C.: A general variable
+  neighborhood search-based solution approach for the
+  location-inventory-routing problem with distribution outsourcing. Computers
+  \& Chemical Engineering  \textbf{126},  263--279 (2019)
+
+\bibitem{KARIMIMAMAGHAN2022393}
+Karimi-Mamaghan, M., Mohammadi, M., Meyer, P., Karimi-Mamaghan, A.M., Talbi,
+  E.G.: Machine learning at the service of meta-heuristics for solving
+  combinatorial optimization problems: A state-of-the-art. European Journal of
+  Operational Research  \textbf{296}(2),  393--422 (2022)
+
+\bibitem{lawler1985tsp}
+Lawler, E.L., Lenstra, J.K., Rinnooy~Kan, A.H.G., Shmoys, D.B.: The Traveling
+  Salesman Problem: A Guided Tour of Combinatorial Optimization. Wiley,
+  Chichester (1985)
+
+\bibitem{MARX200831}
+Marx, D.: Searching the k-change neighborhood for tsp is w[1]-hard. Operations
+  Research Letters  \textbf{36}(1),  31--36 (2008)
+
+\bibitem{MENENDEZ201782}
+Menéndez, B., Bustillo, M., Pardo, E.G., Duarte, A.: General variable
+  neighborhood search for the order batching and sequencing problem. European
+  Journal of Operational Research  \textbf{263}(1),  82--93 (2017)
+
+\bibitem{mladenovic1997vns}
+Mladenović, N., Hansen, P.: Variable neighborhood search. Computers and
+  Operations Research  \textbf{24}(11),  1097--1100 (1997), citeSeerX:
+  10.1.1.800.1797
+
+\bibitem{osman1996meta}
+Osman, I.H., Kelly, J.P.: Meta-heuristics: An overview. In: Osman, I.H., Kelly,
+  J.P. (eds.) Meta-Heuristics: Theory and Applications, pp. 1--21. Kluwer
+  Academic Publishers, Boston, MA, USA (1996)
+
+\bibitem{Papalitsas}
+Papalitsas, C., Karakostas, P., Andronikos, T.: A performance study of the
+  impact of different perturbation methods on the efficiency of gvns for
+  solving tsp. Applied System Innovation  \textbf{2}, ~31 (09 2019)
+
+\bibitem{Perttunen1994}
+Perttunen, J.: On the significance of the initial solution in travelling
+  salesman heuristics. Journal of the Operational Research Society
+  \textbf{45}(10),  1131--1140 (Oct 1994)
+
+\bibitem{QUEIROZDOSSANTOS20144939}
+{Queiroz dos Santos}, J.P., {de Melo}, J.D., {Duarte Neto}, A.D., Aloise, D.:
+  Reactive search strategies using reinforcement learning, local search
+  algorithms and variable neighborhood search. Expert Systems with Applications
+   \textbf{41}(10),  4939--4949 (2014)
+
+\bibitem{ruan2024rlga_tsp}
+Ruan, Y., Cai, W., Wang, J.: Combining reinforcement learning algorithm and
+  genetic algorithm to solve the traveling salesman problem. The Journal of
+  Engineering  (2024)
+
+\bibitem{sutton1998reinforcement}
+Sutton, R.S., Barto, A.G.: Reinforcement Learning: An Introduction. Adaptive
+  Computation and Machine Learning, MIT Press, Cambridge, MA (1998)
+
+\bibitem{taillard1997tabu}
+Taillard, E., Badeau, P., Gendreau, M., Guertin, F., Potvin, J.Y.: A tabu
+  search heuristic for the vehicle routing problem with soft time windows.
+  Transportation Science  \textbf{31}(2),  170--186 (1997)
+
+\bibitem{TODOSIJEVIC2016873}
+Todosijević, R., Mladenović, M., Hanafi, S., Mladenović, N., Crévits, I.:
+  Adaptive general variable neighborhood search heuristics for solving the unit
+  commitment problem. International Journal of Electrical Power \& Energy
+  Systems  \textbf{78},  873--883 (2016)
+
+\bibitem{VENKATESH2018189}
+Venkatesh, P., Srivastava, G., Singh, A.: A general variable neighborhood
+  search algorithm for the k-traveling salesman problem. Procedia Computer
+  Science  \textbf{143},  189--196 (2018), 8th International Conference on
+  Advances in Computing \& Communications (ICACC-2018)
+
+\bibitem{watkins1989learning}
+Watkins, C.J.C.H.: Learning from Delayed Rewards. Ph.D. thesis, University of
+  Cambridge, Cambridge, UK (1989)
+
+\bibitem{Wauters2013}
+Wauters, T., Verbeeck, K., De~Causmaecker, P., Vanden~Berghe, G.: Boosting
+  Metaheuristic Search Using Reinforcement Learning, pp. 433--452. Springer
+  Berlin Heidelberg, Berlin, Heidelberg (2013)
+
+\end{thebibliography}

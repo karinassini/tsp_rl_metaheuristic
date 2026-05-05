@@ -1,0 +1,48 @@
+This is BibTeX, Version 0.99d (TeX Live 2024)
+Capacity: max_strings=200000, hash_size=200000, hash_prime=170003
+The top-level auxiliary file: main.aux
+The style file: splncs04.bst
+Database file #1: mylib.bib
+Warning--can't use both author and editor fields in Wauters2013
+You've used 34 entries,
+            2850 wiz_defined-function locations,
+            841 strings with 11617 characters,
+and the built_in function-call counts, 20718 in all, are:
+= -- 1731
+> -- 562
+< -- 54
++ -- 240
+- -- 196
+* -- 1324
+:= -- 2524
+add.period$ -- 39
+call.type$ -- 34
+change.case$ -- 204
+chr.to.int$ -- 0
+cite$ -- 35
+duplicate$ -- 1887
+empty$ -- 1849
+format.name$ -- 228
+if$ -- 4594
+int.to.chr$ -- 0
+int.to.str$ -- 34
+missing$ -- 365
+newline$ -- 108
+num.names$ -- 72
+pop$ -- 614
+preamble$ -- 1
+purify$ -- 164
+quote$ -- 0
+skip$ -- 637
+stack$ -- 0
+substring$ -- 1313
+swap$ -- 1161
+text.length$ -- 54
+text.prefix$ -- 0
+top$ -- 0
+type$ -- 130
+warning$ -- 1
+while$ -- 177
+width$ -- 36
+write$ -- 350
+(There was 1 warning)
