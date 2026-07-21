@@ -429,6 +429,7 @@ def marl_initial_population(
     marl_softmax_beta: float,
     marl_epsilon: float,
     marl_policy_epsilon_greedy_prob: float = 1.0,
+    verbose_route_log: bool = False,
     log: Optional[logging.Logger] = None,
 ) -> List[np.ndarray]:
     """Generate a MARL-seeded population for the GA."""
@@ -472,6 +473,12 @@ def marl_initial_population(
                     _ + 1,
                     marl_iterations,
                 )
+                if verbose_route_log:
+                    logger_obj.info(
+                        "route: %s, cost: %.2f",
+                        iteration_best_tour.tolist(),
+                        iteration_best_distance,
+                    )
             best_distance = iteration_best_distance
             _marl_update_q_table(
                 distance_matrix,

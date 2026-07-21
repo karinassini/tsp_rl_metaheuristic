@@ -43,6 +43,7 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
         marl_params: dict | None = None,
         best_known_distance: float | None = None,
         timestamp: str | None = None,
+        verbose_route_log: bool = False,
     ):
         """
         Initialize the VNS solver with a Graph object.
@@ -62,6 +63,7 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
             marl_params=marl_params,
             best_known_distance=best_known_distance,
             timestamp=timestamp,
+            verbose_route_log=verbose_route_log,
         )
         self.rl_alpha = rl_alpha
         self.rl_gamma = rl_gamma
@@ -197,8 +199,30 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
                 self.rl_epsilon_min, self.rl_epsilon * self.rl_epsilon_decay
             )
 
+    _OP_SHORT = {
+        '_two_opt_first_improvement':        '2opt',
+        '_one_move_insertion_improvement':   '1move',
+        '_three_opt_first_improvement':      '3opt',
+        '_two_exchange_first_improvement':   '2exch',
+        '_double_bridge_first_improvement':  'dbl-br',
+    }
+
+    def _log_q_table(self) -> None:
+        """Log the current Q-table in a human-readable format."""
+        if self._rl_q_table is None or self._rl_operator_index is None:
+            return
+        names = [name for name, _ in sorted(self._rl_operator_index.items(), key=lambda x: x[1])]
+        short = [self._OP_SHORT.get(n, n[:6]) for n in names]
+        col_w = 8
+        header_row = ' ' * col_w + ''.join(s.rjust(col_w) for s in short)
+        rows = ['Q-table (row=prev → col=next):', header_row]
+        for i, row_name in enumerate(short):
+            vals = ''.join(f'{self._rl_q_table[i, j]:>{col_w}.4f}' for j in range(len(short)))
+            rows.append(row_name.rjust(col_w) + vals)
+        self.logger.info('%s', '\n'.join(rows))
+
     def local_search(
-        self, tour: np.ndarray, current_distance: float, operators=None
+        self, tour: np.ndarray, current_distance: float, operators=None, max_iterations_override: int | None = None
     ) -> tuple[np.ndarray, float]:
         """Reinforcement-learning driven selection of neighbourhood operators."""
         if operators is None:
@@ -206,8 +230,8 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
                 self._two_opt_first_improvement,
                 self._one_move_insertion_improvement,
                 self._three_opt_first_improvement,
-                self._two_exchange_first_improvement,
-                #self._double_bridge_first_improvement,
+                #self._two_exchange_first_improvement,
+                self._double_bridge_first_improvement,
             ]
 
         named_ops = [(op.__name__, op) for op in operators]
@@ -250,6 +274,11 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
                 state_name,
                 best_distance,
             )
+            self.logger.debug(
+                "route: %s, cost: %.2f",
+                best_tour.tolist(),
+                best_distance,
+            )
         else:
             failure_streaks[state_idx] += 1
             if failure_streaks[state_idx] >= self.operator_failure_limit:
@@ -261,9 +290,13 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
                 )
 
         max_iterations = (
-            self.max_local_search_iterations
-            if self.max_local_search_iterations is not None
-            else len(named_ops) * max(5, self.n_cities // 10)
+            max_iterations_override
+            if max_iterations_override is not None
+            else (
+                self.max_local_search_iterations
+                if self.max_local_search_iterations is not None
+                else len(named_ops) * max(5, self.n_cities // 10)
+            )
         )
 
         self.logger.info(
@@ -302,6 +335,12 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
                     best_distance,
                     reward,
                 )
+                self.logger.debug(
+                    "route: %s, cost: %.2f",
+                    best_tour.tolist(),
+                    best_distance,
+                )
+                self._log_q_table()
             else:
                 penalty = self._negative_reward(best_distance, candidate_distance)
                 self._update_q_value(state_idx, action_idx, penalty)
@@ -321,6 +360,11 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
                     action_name,
                     penalty,
                     [named_ops[idx][0] for idx in sorted(available)],
+                )
+                self.logger.debug(
+                    "route: %s, cost: %.2f",
+                    best_tour.tolist(),
+                    best_distance,
                 )
                 if not available:
                     break
@@ -356,6 +400,8 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
             self.logger.info(
                 f"Initial {method_key} tour: {tour.tolist()}, distance: {total_distance:.2f}"
             )
+            if self.verbose_route_log:
+                self.logger.debug("route: %s, cost: %.2f", tour.tolist(), float(total_distance))
             self._record_best_known_hit(float(total_distance), 0)
         elif method_key in {"q_learning", "qlearning", "q-learn"}:
             tour, full_distance_matrix = q_learning_tour(
@@ -367,6 +413,8 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
             self.logger.info(
                 f"Initial q_learning tour: {tour.tolist()}, distance: {total_distance:.2f}"
             )
+            if self.verbose_route_log:
+                self.logger.debug("route: %s, cost: %.2f", tour.tolist(), float(total_distance))
             self._record_best_known_hit(float(total_distance), 0)
         elif method_key == "random":
             tour = np.arange(self.n_cities)
@@ -377,6 +425,8 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
             self.logger.info(
                 f"Initial random tour: {tour.tolist()}, distance: {total_distance:.2f}"
             )
+            if self.verbose_route_log:
+                self.logger.debug("route: %s, cost: %.2f", tour.tolist(), float(total_distance))
             self._record_best_known_hit(float(total_distance), 0)
         elif method_key == "rcl":
             tour = rcl_nearest_neighbour_tour(self.graph, start=start, alpha=0.3)
@@ -384,6 +434,8 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
             self.logger.info(
                 f"Initial RCL tour: {tour.tolist()}, distance: {total_distance:.2f}"
             )
+            if self.verbose_route_log:
+                self.logger.debug("route: %s, cost: %.2f", tour.tolist(), float(total_distance))
             self._record_best_known_hit(float(total_distance), 0)
         elif method_key == "marl":
             params = self.marl_params or {}
@@ -402,6 +454,7 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
                 marl_learning_rate=float(params.get("marl_learning_rate", 0.4)),
                 marl_softmax_beta=float(params.get("marl_softmax_beta", 2.0)),
                 marl_epsilon=float(params.get("marl_epsilon", 0.15)),
+                verbose_route_log=self.verbose_route_log,
                 log=self.logger,
             )
             if not population:
@@ -426,6 +479,8 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
                 tour.tolist(),
                 total_distance,
             )
+            if self.verbose_route_log:
+                self.logger.debug("route: %s, cost: %.2f", tour.tolist(), float(total_distance))
             self._record_best_known_hit(float(total_distance), 0)
         else:
             raise ValueError(
@@ -452,6 +507,17 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
         non_improve_limit = max(1, int(max_non_improving_iterations))
         best_known_reached = self.best_known_hit_iteration is not None
 
+        # Initialise Q-table once before the search loop so it accumulates
+        # knowledge across all local-search calls instead of being lazily
+        # reset on the first call inside local_search.
+        default_operators = [
+            self._two_opt_first_improvement,
+            self._one_move_insertion_improvement,
+            self._three_opt_first_improvement,
+            self._two_exchange_first_improvement,
+        ]
+        self._initialize_rl_table([op.__name__ for op in default_operators])
+
         try:
             while iteration <= iteration_limit and not best_known_reached:
                 self.logger.info("=== Iteration %d ===", iteration)
@@ -460,6 +526,12 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
 
                 while k <= max_neighbourhood:
                     self.logger.info("Iteration %d - neighbourhood k=%d", iteration, k)
+                    if self.verbose_route_log:
+                        self.logger.debug(
+                            "route: %s, cost: %.2f",
+                            tour.tolist(),
+                            self.tour_distance(tour, self.distance_matrix),
+                        )
                     time_start = time.time()
                     tour_from_shaking = self.shaking(tour, k)
                     time_end = time.time()
@@ -473,10 +545,24 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
                         exploration_time,
                         shaken_distance,
                     )
+                    if self.verbose_route_log:
+                        self.logger.debug(
+                            "route: %s, cost: %.2f",
+                            tour_from_shaking.tolist(),
+                            shaken_distance,
+                        )
 
                     time_start = time.time()
+
+                    # Dynamic iteration budget based on k: larger perturbations need more recovery
+                    iterations_for_k = self.max_local_search_iterations
+                    if k == 2 and self.max_local_search_iterations is not None:
+                        iterations_for_k = int(self.max_local_search_iterations * 1.25)  # 25% more for k=2
+                    elif k >= 3 and self.max_local_search_iterations is not None:
+                        iterations_for_k = int(self.max_local_search_iterations * 1.5)   # 50% more for k>=3
+
                     new_tour, new_distance = self.local_search(
-                        tour_from_shaking, shaken_distance
+                        tour_from_shaking, shaken_distance, max_iterations_override=iterations_for_k
                     )
                     time_end = time.time()
                     exploitation_time = time_end - time_start

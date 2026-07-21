@@ -2,7 +2,6 @@ import networkx as nx
 import os
 import matplotlib.pyplot as plt
 import math
-import networkx as nx
 import numpy as np
 
 
@@ -12,12 +11,6 @@ class Graph:
     """
 
     def __init__(self, nodes, edges=None, coords=None):
-        """
-        Initialize the graph.
-        :param nodes: List of node identifiers (e.g., city names or indices).
-        :param edges: Optional dictionary {(node1, node2): distance}.
-        :param coords: Optional list of (x, y) coordinates aligned with ``nodes``.
-        """
         self.nodes = nodes
         self.n_nodes = len(nodes)
         self.edges = edges if edges is not None else {}
@@ -95,7 +88,6 @@ class Graph:
 
         nodes = list(range(dimension))
         edges = {}
-
         coord_list = None
 
         if edge_weight_type == "EXPLICIT":
@@ -110,7 +102,6 @@ class Graph:
                     )
                 matrix = weights.reshape((dimension, dimension))
             elif fmt in {"LOWER_DIAG_ROW", "LOWER_ROW", "UPPER_DIAG_ROW", "UPPER_ROW"}:
-
                 idx = 0
                 include_diag = "DIAG" in fmt
                 is_lower = fmt.startswith("LOWER")
@@ -123,8 +114,6 @@ class Graph:
                             if include_diag
                             else range(i + 1, dimension)
                         )
-                        # The logic below builds per-row index ranges over the flattened weights so each
-                        # iteration can read exactly the entries corresponding to that row of the triangular matrix.
                     for j in j_range:
                         if idx >= weights.size:
                             raise ValueError(
@@ -174,7 +163,7 @@ class Graph:
                         value = int(round(dist))
                     elif edge_weight_type == "CEIL_2D":
                         value = math.ceil(dist)
-                    else:  # ATT (pseudo-Euclidean as in TSPLIB)
+                    else:  # ATT
                         r = math.sqrt((dx * dx + dy * dy) / 10.0)
                         t = int(round(r))
                         if t < r:
@@ -182,8 +171,50 @@ class Graph:
                         value = t
                     row, col = (i, j) if i <= j else (j, i)
                     matrix[row, col] = value
-                    # matrix[j, i] = value
             coord_list = coords
+
+        elif edge_weight_type == "GEO":
+            if len(node_coords) != dimension:
+                raise ValueError(
+                    f"Expected {dimension} node coordinates, got {len(node_coords)}."
+                )
+            coords = [None] * dimension
+            for node_id, x, y in node_coords:
+                if not (0 <= node_id < dimension):
+                    raise ValueError(
+                        f"Node id {node_id + 1} out of expected range 1..{dimension}."
+                    )
+                coords[node_id] = (x, y)
+            if any(c is None for c in coords):
+                missing = [i + 1 for i, c in enumerate(coords) if c is None]
+                raise ValueError(f"Missing coordinates for nodes: {missing}")
+
+            def _geo_dist(lat1_deg, lon1_deg, lat2_deg, lon2_deg) -> int:
+                """TSPLIB GEO distance (great-circle, RRR=6378.388 km)."""
+                RRR = 6378.388
+
+                def to_rad(deg_float):
+                    deg = int(deg_float)
+                    minute = deg_float - deg
+                    return math.pi * (deg + 5.0 * minute / 3.0) / 180.0
+
+                lat1 = to_rad(lat1_deg)
+                lon1 = to_rad(lon1_deg)
+                lat2 = to_rad(lat2_deg)
+                lon2 = to_rad(lon2_deg)
+                q1 = math.cos(lon1 - lon2)
+                q2 = math.cos(lat1 - lat2)
+                q3 = math.cos(lat1 + lat2)
+                return int(RRR * math.acos(0.5 * ((1.0 + q1) * q2 - (1.0 - q1) * q3)) + 1.0)
+
+            matrix = np.zeros((dimension, dimension), dtype=float)
+            for i in range(dimension):
+                xi, yi = coords[i]
+                for j in range(i + 1, dimension):
+                    xj, yj = coords[j]
+                    matrix[i, j] = _geo_dist(xi, yi, xj, yj)
+            coord_list = coords
+
         else:
             raise ValueError(f"Unsupported EDGE_WEIGHT_TYPE '{edge_weight_type}'.")
 
@@ -199,7 +230,6 @@ class Graph:
         for (i, j), dist in self.edges.items():
             row, col = (i, j) if i <= j else (j, i)
             matrix[row][col] = dist
-            # matrix[col][row] = dist  # Symmetric if needed
         return matrix
 
     def build_adj_matrix_full(self):
@@ -209,14 +239,13 @@ class Graph:
         for (i, j), dist in self.edges.items():
             row, col = (i, j) if i <= j else (j, i)
             matrix[row][col] = dist
-            matrix[col][row] = dist  # Symmetric if needed
+            matrix[col][row] = dist
         return matrix
 
     def add_edge(self, i, j, dist):
         row, col = (i, j) if i <= j else (j, i)
         self.edges[(row, col)] = dist
         self.adj_matrix[row][col] = dist
-        # self.adj_matrix[col][row] = dist
 
     def get_distance_matrix(self):
         return self.adj_matrix
@@ -225,28 +254,18 @@ class Graph:
         return f"Graph(nodes={self.nodes}, edges={len(self.edges)})"
 
     def visualize(self, save_dir=None):
-        """
-        Visualize the graph. If save_dir is provided, the plot will be saved in that directory
-        instead of being displayed.
-        """
-        # Create a NetworkX graph
         G = nx.Graph()
         G.add_nodes_from(self.nodes)
-        # Add edges only once (for i < j)
         added = set()
         for (i, j), dist in self.edges.items():
             if (j, i) not in added:
                 G.add_edge(i, j, weight=round(dist, 2))
                 added.add((i, j))
-
-        # Compute layout
         pos = nx.spring_layout(G)
-        # Draw nodes and edges with labels
         nx.draw(G, pos, with_labels=True, node_color="lightblue", edge_color="gray")
         edge_labels = nx.get_edge_attributes(G, "weight")
         nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels)
         plt.title("Graph Visualization")
-
         if save_dir:
             if not os.path.exists(save_dir):
                 os.makedirs(save_dir)

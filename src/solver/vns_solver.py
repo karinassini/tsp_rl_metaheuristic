@@ -49,6 +49,7 @@ class VNS_Solver(LocalSearchOperatorsMixin):
         best_known_distance: float | None = None,
         timestamp: str | None = None,
         segment_len_val: int | None = None,
+        verbose_route_log: bool = True,
     ):
         """
         Initialize the VNS solver with a Graph object.
@@ -69,6 +70,7 @@ class VNS_Solver(LocalSearchOperatorsMixin):
         self.max_inversion_segment_length = max(2, max_inversion_segment_length)
         self.q_learning_cfg = q_learning_cfg
         self.marl_params = marl_params or {}
+        self.verbose_route_log = verbose_route_log
         self.best_known_distance = best_known_distance
         self.best_known_hit_iteration: int | None = None
         self.iterations_executed: int = 0
@@ -116,6 +118,7 @@ class VNS_Solver(LocalSearchOperatorsMixin):
             "max_flip_subsequence_length": self.max_flip_subsequence_length,
             "max_inversion_segment_length": self.max_inversion_segment_length,
             "segment_len_val": self.segment_len_val,
+            "verbose_route_log": self.verbose_route_log,
             "best_known_distance": self.best_known_distance,
             "q_learning_cfg": (
                 asdict(self.q_learning_cfg) if self.q_learning_cfg else None
@@ -206,6 +209,12 @@ class VNS_Solver(LocalSearchOperatorsMixin):
                         f"Local search improvement found with {operator.__name__} -> old_distance: {old_distance_ls:.2f} vs current_distance: {current_distance:.2f}"
                     )
                     current_tour = candidate
+                    if self.verbose_route_log:
+                        self.logger.info(
+                            "route: %s, cost: %.2f",
+                            current_tour.tolist(),
+                            current_distance,
+                        )
                     improved = True
                     break  # restart from the first operator in the next iteration
         return current_tour, current_distance
@@ -249,12 +258,11 @@ class VNS_Solver(LocalSearchOperatorsMixin):
         elif k == 2:
             ops = [
                 ShakeOp(lambda t: self._shake_k_exchange(t, k_nodes=k_small), "_shake_k_exchange_small"),
-                ShakeOp(lambda t: self._shake_cross_exchange(t, len1=seg_len_mild // 2 + 1, len2=seg_len_mild // 2 + 1), "_shake_cross_exchange_mild"),
-                ShakeOp(lambda t: self._shake_shuffle_segment(t, seg_len=seg_len_medium), "_shake_shuffle_segment_medium"),
+                ShakeOp(lambda t: self._shake_shuffle_segment(t, seg_len=seg_len_mild), "_shake_shuffle_segment_mild"),
+                ShakeOp(lambda t: self._shake_oropt_block(t, block_len=4), "_shake_oropt_block_4"),
             ]
         elif k == 3:
             ops = [
-                ShakeOp(lambda t: self._shake_double_bridge(t), "_shake_double_bridge"),
                 ShakeOp(lambda t: self._shake_k_exchange(t, k_nodes=k_medium), "_shake_k_exchange_medium"),
                 ShakeOp(lambda t: self._shake_cross_exchange(t, len1=seg_len_medium // 2 + 2, len2=seg_len_medium // 2 + 2), "_shake_cross_exchange_medium"),
                 ShakeOp(lambda t: self._shake_block_recombine(t, block_size=max(6, n // 10)), "_shake_block_recombine_medium"),
@@ -353,6 +361,7 @@ class VNS_Solver(LocalSearchOperatorsMixin):
                 marl_learning_rate=float(params.get("marl_learning_rate", 0.4)),
                 marl_softmax_beta=float(params.get("marl_softmax_beta", 2.0)),
                 marl_epsilon=float(params.get("marl_epsilon", 0.15)),
+                verbose_route_log=self.verbose_route_log,
                 log=self.logger,
             )
             if not population:
@@ -411,6 +420,12 @@ class VNS_Solver(LocalSearchOperatorsMixin):
 
                 while k <= max_neighbourhood:
                     self.logger.info("Iteration %d - neighbourhood k=%d", iteration, k)
+                    if self.verbose_route_log:
+                        self.logger.info(
+                            "route: %s, cost: %.2f",
+                            tour.tolist(),
+                            self.tour_distance(tour, self.distance_matrix),
+                        )
                     time_start = time.time()
                     tour_from_shaking = self.shaking(tour, k)
                     time_end = time.time()
@@ -419,11 +434,17 @@ class VNS_Solver(LocalSearchOperatorsMixin):
                     shaken_distance = self.tour_distance(
                         tour_from_shaking, self.distance_matrix
                     )
-                    self.logger.info(
-                        "Shaking phase completed in %.4f seconds (distance %.2f)",
-                        exploration_time,
-                        shaken_distance,
-                    )
+                   #self.logger.info(
+                   #     "Shaking phase completed in %.4f seconds (distance %.2f)",
+                   #     exploration_time,
+                   #     shaken_distance,
+                   # )
+                    if self.verbose_route_log:
+                        self.logger.info(
+                            "route: %s, cost: %.2f",
+                            tour_from_shaking.tolist(),
+                            shaken_distance,
+                        )
 
                     time_start = time.time()
                     new_tour, new_distance = self.local_search(
@@ -439,11 +460,11 @@ class VNS_Solver(LocalSearchOperatorsMixin):
                     )
 
                     old_distance = self.tour_distance(tour, self.distance_matrix)
-                    self.logger.info(
-                        "Old distance: %.2f, New distance: %.2f",
-                        old_distance,
-                        new_distance,
-                    )
+                    #self.logger.info(
+                    #    "Old distance: %.2f, New distance: %.2f",
+                    #    old_distance,
+                    #    new_distance,
+                    #)
 
                     if new_distance < old_distance:
                         self.logger.info(

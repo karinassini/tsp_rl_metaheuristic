@@ -2,6 +2,7 @@ import itertools
 import random
 import numpy as np
 from typing import Tuple
+import math
 
 class LocalSearchOperatorsMixin:
     """
@@ -434,15 +435,16 @@ class LocalSearchOperatorsMixin:
             return tour, False, current_distance
 
         core = tour[:-1] if is_closed else tour
-        indices = list(range(1, length))
-        all_combinations = list(itertools.combinations(indices, 4))
-        selected_combination = random.sample(
-            all_combinations,
-            int(len(all_combinations) * min(1, max_checks / len(all_combinations))),
-        )
+        max_unique_combinations = math.comb(length - 1, 4)
+        target_checks = min(max_checks, max_unique_combinations)
+        seen_combinations: set[tuple[int, int, int, int]] = set()
 
-        while selected_combination:
-            a, b, c, d = sorted(selected_combination.pop())
+        while len(seen_combinations) < target_checks:
+            a, b, c, d = sorted(random.sample(range(1, length), 4))
+            combination = (a, b, c, d)
+            if combination in seen_combinations:
+                continue
+            seen_combinations.add(combination)
             prev_a = core[a - 1]
             head_s2 = core[a]
             tail_s2 = core[b - 1]

@@ -103,7 +103,8 @@ def test_vns_solver(
         max_non_improving_iterations=max_non_improving_iterations,
     )
 
-    print("VNS Tour:", tour)
+    if solver.verbose_route_log:
+        print("VNS Tour:", tour)
     print("VNS Total distance:", total_distance)
     print("VNS Exploration time:", exploration_time)
     print("VNS Exploitation time:", exploitation_time)

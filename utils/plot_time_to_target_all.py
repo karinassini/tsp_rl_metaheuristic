@@ -88,6 +88,7 @@ def plot_time_to_target_collection(
     method_filters: set[str] | None = None,
     solver_filters: set[str] | None = None,
     group_by_method: bool = False,
+    group_all: bool = False,
 ) -> None:
     sources = [Path(src) for src in json_sources]
     if not sources:
@@ -120,6 +121,14 @@ def plot_time_to_target_collection(
         "VNS_Solver_Q_Learnings": "#d62728",
     }
 
+    # Stable colors for the group_all mode (solver + method combo).
+    fixed_combo_colors = {
+        ("VNS_Solver", "marl"): "#1f77b4",
+        ("VNS_Solver", "rcl"): "#2ca02c",
+        ("VNS_Solver_Q_Learnings", "marl"): "#d62728",
+        ("VNS_Solver_Q_Learnings", "rcl"): "#ff7f0e",
+    }
+
     for json_path in _iter_json_files(sources, start_filters=start_filters):
         with json_path.open("r", encoding="utf-8") as fp:
             payload = json.load(fp)
@@ -146,7 +155,12 @@ def plot_time_to_target_collection(
                 style = {k: v for k, v in incoming_style.items() if k != "color"}
                 style["label"] = label
 
-                key = (instance, method, start_label) if group_by_method else (solver, instance, start_label)
+                if group_all:
+                    key = (instance, start_label)
+                elif group_by_method:
+                    key = (instance, method, start_label)
+                else:
+                    key = (solver, instance, start_label)
                 per_group_series[key].append(
                     {
                         "times": times,
@@ -171,7 +185,9 @@ def plot_time_to_target_collection(
         color_cycle = cycle(palette_colors)
         color_map: Dict[str, str] = {}
 
-        if group_by_method:
+        if group_all:
+            instance_name, start_label = group_key
+        elif group_by_method:
             instance_name, method_name, start_label = group_key
         else:
             solver_name, instance_name, start_label = group_key
@@ -197,6 +213,13 @@ def plot_time_to_target_collection(
             custom_color = series.get("custom_color")
             if custom_color:
                 color = custom_color
+            elif group_all:
+                color = fixed_combo_colors.get((series_solver, series_method))
+                if color is None:
+                    combo_key = f"{series_solver}_{series_method}"
+                    if combo_key not in color_map:
+                        color_map[combo_key] = next(color_cycle)
+                    color = color_map[combo_key]
             else:
                 color_key = series_solver if group_by_method else series_method
                 color = fixed_colors.get(color_key)
@@ -215,7 +238,9 @@ def plot_time_to_target_collection(
             smooth_times, smooth_prob = _smooth_curve(times, probabilities)
             mean_time = series.get("mean_time")
             legend_label = label
-            if group_by_method:
+            if group_all:
+                legend_label = f"{series_solver} - {series_method}"
+            elif group_by_method:
                 legend_label = f"{series_solver} - {legend_label}" if legend_label else series_solver
             if mean_time is not None:
                 legend_label = f"{legend_label} (μ={mean_time:.2f}s)" if legend_label else f"μ={mean_time:.2f}s"
@@ -239,7 +264,9 @@ def plot_time_to_target_collection(
             ax.set_xlim(left=min_time)
 
         title_suffix = "start null" if start_label == "null" else f"start {start_label}" if start_label != "all" else "all starts"
-        if group_by_method:
+        if group_all:
+            ax.set_title(f"Time to Target - {instance_name}")
+        elif group_by_method:
             ax.set_title(f"Time to Target - {instance_name}")# (method {method_name}, {title_suffix})")
         else:
             ax.set_title(f"Time to Target - {instance_name}") #({solver_name}, {title_suffix})")
@@ -250,7 +277,10 @@ def plot_time_to_target_collection(
         ax.legend(loc="lower right")
 
         suffix = start_label if start_filters and len(start_filters) == 1 else start_label
-        if group_by_method:
+        if group_all:
+            instance_dir = destination / "all_combined" / instance_name / f"start_{suffix}"
+            out_path = instance_dir / f"time_to_target_{instance_name}_all_start_{suffix}.png"
+        elif group_by_method:
             instance_dir = destination / "method_compare" / method_name / instance_name / f"start_{suffix}"
             out_path = instance_dir / f"time_to_target_{instance_name}_{method_name}_start_{suffix}.png"
         else:

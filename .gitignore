@@ -5,6 +5,7 @@ __pycache__/
 
 outputs/
 outputs_old/
+paper/
 
 data/
 
@@ -13,3 +14,4 @@ data/
 *next_step.md
 
 **atividade*
+

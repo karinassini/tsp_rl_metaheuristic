@@ -9,7 +9,7 @@ from plot_time_to_target_all import plot_time_to_target_collection
 from solution_csv_aggregator import concatenate_solution_csvs
 
 
-def _run_plots(start_values: list[str | None], *, group_by_method: bool = False) -> None:
+def _run_plots(start_values: list[str | None], *, group_by_method: bool = False, group_all: bool = False) -> None:
 	repo_root = Path(__file__).resolve().parents[1]
 	sources = [repo_root / "outputs" / "plots" / "solutions"]
 	for start in start_values:
@@ -19,13 +19,22 @@ def _run_plots(start_values: list[str | None], *, group_by_method: bool = False)
 		else:
 			start_filters = {start}
 			label = f"start={start}"
-		mode = "method comparison" if group_by_method else "per solver"
+		if group_all:
+			mode = "all combined"
+			subdir = "all_combined"
+		elif group_by_method:
+			mode = "method comparison"
+			subdir = "grouped_by_method"
+		else:
+			mode = "per solver"
+			subdir = "per_solver"
 		print(f"Plotting time-to-target curves for {label} ({mode})...")
 		plot_time_to_target_collection(
 			sources,
-			output_dir=repo_root / "outputs" / "plots" / "time_to_target" / ("grouped_by_method" if group_by_method else "per_solver"),
+			output_dir=repo_root / "outputs" / "plots" / "time_to_target" / subdir,
 			start_filters=start_filters,
 			group_by_method=group_by_method,
+			group_all=group_all,
 		)
 
 
@@ -40,6 +49,7 @@ def main() -> None:
 	#_run_plots(["null", "0"])
 	_run_plots(["null", "0"], group_by_method=False)
 	_run_plots(["null", "0"], group_by_method=True)
+	_run_plots(["null", "0"], group_all=True)
 
 
 if __name__ == "__main__":
