@@ -230,8 +230,7 @@ class VNS_Solver_Q_Learnings(VNS_Solver):
                 self._two_opt_first_improvement,
                 self._one_move_insertion_improvement,
                 self._three_opt_first_improvement,
-                #self._two_exchange_first_improvement,
-                self._double_bridge_first_improvement,
+                self._two_exchange_first_improvement,
             ]
 
         named_ops = [(op.__name__, op) for op in operators]

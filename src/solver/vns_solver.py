@@ -186,8 +186,7 @@ class VNS_Solver(LocalSearchOperatorsMixin):
                 self._two_opt_first_improvement,
                 self._one_move_insertion_improvement,
                 self._three_opt_first_improvement,
-                #self._two_exchange_first_improvement,
-                self._double_bridge_first_improvement,
+                self._two_exchange_first_improvement,
             ]
 
         current_tour = tour.copy()
@@ -257,21 +256,22 @@ class VNS_Solver(LocalSearchOperatorsMixin):
             ]
         elif k == 2:
             ops = [
-                ShakeOp(lambda t: self._shake_k_exchange(t, k_nodes=k_small), "_shake_k_exchange_small"),
-                ShakeOp(lambda t: self._shake_shuffle_segment(t, seg_len=seg_len_mild), "_shake_shuffle_segment_mild"),
                 ShakeOp(lambda t: self._shake_oropt_block(t, block_len=4), "_shake_oropt_block_4"),
+                ShakeOp(lambda t: self._shake_shuffle_segment(t, seg_len=seg_len_mild), "_shake_shuffle_segment_mild"),
+                ShakeOp(lambda t: self._shake_oropt_block(t, block_len=2), "_shake_oropt_block_2_k2"),
             ]
         elif k == 3:
             ops = [
-                ShakeOp(lambda t: self._shake_k_exchange(t, k_nodes=k_medium), "_shake_k_exchange_medium"),
-                ShakeOp(lambda t: self._shake_cross_exchange(t, len1=seg_len_medium // 2 + 2, len2=seg_len_medium // 2 + 2), "_shake_cross_exchange_medium"),
-                ShakeOp(lambda t: self._shake_block_recombine(t, block_size=max(6, n // 10)), "_shake_block_recombine_medium"),
+                # Mais forte que k=2, mas não extremo
+                ShakeOp(lambda t: self._shake_k_exchange(t, k_nodes=k_small+1), "_shake_k_exchange_medium_light"),  # k_small=3 → 4 nodes
+                ShakeOp(lambda t: self._shake_shuffle_segment(t, seg_len=seg_len_medium), "_shake_shuffle_segment_medium"),  # seg_len_mild → seg_len_medium
+                ShakeOp(lambda t: self._shake_oropt_block(t, block_len=5), "_shake_oropt_block_5"),  # bloco 4 → 5
             ]
         else:  # k >= 4
             ops = [
                 ShakeOp(lambda t: self._shake_double_bridge(t), "_shake_double_bridge"),
-                ShakeOp(lambda t: self._shake_k_exchange(t, k_nodes=k_large), "_shake_k_exchange_large"),
-                ShakeOp(lambda t: self._shake_cross_exchange(t, len1=seg_len_strong // 2 + 2, len2=seg_len_strong // 2 + 2), "_shake_cross_exchange_strong"),
+                ShakeOp(lambda t: self._shake_k_exchange(t, k_nodes=k_medium), "_shake_k_exchange_large"),
+                ShakeOp(lambda t: self._shake_cross_exchange(t, len1=seg_len_medium // 2 + 2, len2=seg_len_medium // 2 + 2), "_shake_cross_exchange_medium"),
                 ShakeOp(lambda t: self._shake_block_recombine(t, block_size=max(8, n // 8)), "_shake_block_recombine_strong"),
                 ShakeOp(lambda t: self._shake_shuffle_segment(t, seg_len=seg_len_strong), "_shake_shuffle_segment_strong"),
             ]
